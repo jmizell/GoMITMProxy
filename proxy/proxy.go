@@ -4,11 +4,13 @@
 package proxy
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 
 	"github.com/benburkert/dns"
 )
@@ -16,6 +18,10 @@ import (
 const HTTPServerFatal = 129
 const TLSServerFatal = 130
 const DNSServerFatal = 132
+
+var defaultProxyHandler = func(url *url.URL) http.Handler {
+	return httputil.NewSingleHostReverseProxy(url)
+}
 
 type Proxy struct {
 	tlsServer  *http.Server
@@ -31,6 +37,8 @@ type Proxy struct {
 	DNSPort    int    `json:"dns_port"`
 	DNSServer  string `json:"dns_server"`
 	DNSRegex   string `json:"dns_regex"`
+
+	newProxy func(*url.URL) http.Handler
 }
 
 func (p *Proxy) Run() (err error) {
@@ -39,6 +47,9 @@ func (p *Proxy) Run() (err error) {
 	p.certs = &Certs{}
 	if p.CACertFile == "" || p.CAKeyFile == "" {
 		p.certs.caKey, p.certs.caCert, err = p.certs.GenerateCAPair()
+		if err != nil {
+			return err
+		}
 		err = WriteCA(p.CACertFile, p.CAKeyFile, p.certs.caCert, p.certs.caKey)
 	} else {
 		err = p.certs.LoadCAPair(p.CAKeyFile, p.CACertFile)
@@ -77,12 +88,12 @@ func (p *Proxy) Run() (err error) {
 	}
 
 	go func() {
-		if err := p.serve(); err != nil {
+		if err := p.serve(); err != http.ErrServerClosed && err != nil {
 			Log.WithError(err).WithExitCode(HTTPServerFatal).Fatal("http server failed")
 		}
 	}()
 
-	if err := p.serveTLS(); err != nil {
+	if err := p.serveTLS(); err != http.ErrServerClosed && err != nil {
 		Log.WithError(err).WithExitCode(TLSServerFatal).Fatal("https server failed")
 	}
 
@@ -139,7 +150,30 @@ func (p *Proxy) serve() error {
 	return p.httpServer.Serve(connection)
 }
 
+func (p *Proxy) Shutdown() (err error) {
+
+	if p.httpServer != nil {
+		httpErr := p.httpServer.Shutdown(context.Background())
+		if httpErr != nil {
+			err = httpErr
+		}
+	}
+
+	if p.tlsServer != nil {
+		tlsErr := p.tlsServer.Shutdown(context.Background())
+		if tlsErr != nil {
+			err = tlsErr
+		}
+	}
+
+	return err
+}
+
 func (p *Proxy) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
+
+	if p.newProxy == nil {
+		p.newProxy = defaultProxyHandler
+	}
 
 	req.URL.Host = req.Host
 	req.URL.Scheme = "http"
@@ -147,8 +181,7 @@ func (p *Proxy) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		req.URL.Scheme = "https"
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(req.URL)
-	proxy.ServeHTTP(resp, req)
+	p.newProxy(req.URL).ServeHTTP(resp, req)
 	Log.WithRequest(req).Info("")
 }
 

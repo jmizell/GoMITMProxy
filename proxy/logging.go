@@ -16,7 +16,7 @@ import (
 )
 
 var Log = &LogHandler{
-	Level: LogINFO,
+	Level:  LogINFO,
 	Format: LOGTEXT,
 }
 
@@ -144,7 +144,7 @@ func (l *LogHandler) writeRequestLog(msg *LogMSG) {
 	if msg.Request != nil && l.RequestLogFile != "" {
 		l.lock.Lock()
 		defer l.lock.Unlock()
-		
+
 		if l.file == nil {
 			l.file, err = os.OpenFile(l.RequestLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 			if err != nil {
@@ -223,7 +223,7 @@ func (l *LogHandler) Error(format string, a ...interface{}) {
 }
 
 type LogMSG struct {
-	logger *LogHandler
+	logger   *LogHandler
 	exitCode int
 
 	Timestamp    time.Time              `json:"timestamp"`
@@ -352,10 +352,12 @@ type RequestRecord struct {
 	RemoteAddr       string              `json:"remote_addr"`
 	RequestURI       string              `json:"request_uri"`
 	TLS              bool                `json:"tls"`
+	TimeStamp        time.Time           `json:"time_stamp"`
 }
 
 func (r *RequestRecord) Load(req *http.Request) (err error) {
 
+	r.TimeStamp = time.Now()
 	r.Method = req.Method
 	r.URL = req.URL
 	r.Proto = req.Proto
