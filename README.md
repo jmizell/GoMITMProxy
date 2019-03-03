@@ -2,3 +2,60 @@
 
 # GoMITMProxy
 Golang Man in the Middle Proxy
+
+## Build
+```make build```
+
+## Test
+```make test```
+
+## Install
+#### Local Install
+
+To use, make sure your [GOBIN is in your path](https://golang.org/cmd/go/), and then run 
+
+```go install github.com/jmizell/GoMITMProxy/cmd/gomitmproxy```
+
+#### Docker
+[![](https://images.microbadger.com/badges/version/jmizell/gomitmproxy.svg)](https://microbadger.com/images/jmizell/gomitmproxy "Get your own version badge on microbadger.com")[![](https://images.microbadger.com/badges/image/jmizell/gomitmproxy.svg)](https://microbadger.com/images/jmizell/gomitmproxy "Get your own image badge on microbadger.com")
+
+Copies of each realease can be found in [jmizell/gomitmproxy](https://hub.docker.com/r/jmizell/gomitmproxy).
+
+```docker pull jmizell/gomitmproxy:latest```
+
+## Usage
+
+```
+Usage: gomitmproxy [options]
+
+  -ca_cert_file string
+    	path to certificate authority cert file
+  -ca_key_file string
+    	path to certificate authority key file
+  -config string
+    	proxy config file path
+  -debug
+    	enable debug logging
+  -dns_port int
+    	port to listen for dns requests
+  -dns_regex string
+    	domains matching this regex pattern will return the proxy address
+  -dns_server string
+    	use the supplied dns resolver, instead of system defaults
+  -generate_ca_only
+    	generate a certificate authority, and exit
+  -http_port int
+    	port to listen for http requests
+  -https_port int
+    	port to listen for https requests
+  -json
+    	output json log format to standard out
+  -key_age_hours int
+    	certificate authority expire time in hours, used only with generate_ca_only
+  -listen_addr string
+    	network address bind to (default "127.0.0.1")
+  -log_level string
+    	set logging to log level (default "info")
+  -request_log_file string
+    	file to log http requests
+```

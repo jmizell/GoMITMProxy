@@ -31,7 +31,7 @@ func main() {
 	requestLogFile := flag.String("request_log_file", "", "file to log http requests")
 	logJSON := flag.Bool("json", false, "output json log format to standard out")
 	logDebug := flag.Bool("debug", false, "enable debug logging")
-	logLevel := flag.String("log_level", "", "set logging to log level")
+	logLevel := flag.String("log_level", "info", "set logging to log level")
 	flag.Usage = func() {
 		path.Base(os.Args[0])
 		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options]\n\n", path.Base(os.Args[0]))
@@ -56,20 +56,8 @@ func main() {
 		os.Exit(0)
 	}
 
-	var p proxy.Proxy
-
-	if *config == "" {
-		p = proxy.Proxy{
-			CAKeyFile:  *CAKeyFile,
-			CACertFile: *CACertFile,
-			HTTPSPort:  *HTTPSPort,
-			HTTPPort:   *HTTPPort,
-			ListenAddr: *ListenAddr,
-			DNSServer:  *DNSServer,
-			DNSPort:    *DNSPort,
-			DNSRegex:   *DNSRegex,
-		}
-	} else {
+	p := proxy.Proxy{}
+	if *config != "" {
 		data, err := ioutil.ReadFile(*config)
 		if err != nil {
 			proxy.Log.WithError(err).WithField("file", *config).Fatal("read config")
@@ -85,10 +73,17 @@ func main() {
 			proxy.Log.WithError(err).WithField("file", *config).Fatal("unmarshal proxy config")
 		}
 	}
+	p.CAKeyFile = *CAKeyFile
+	p.CACertFile = *CACertFile
+	p.HTTPSPort = *HTTPSPort
+	p.HTTPPort = *HTTPPort
+	p.ListenAddr = *ListenAddr
+	p.DNSServer = *DNSServer
+	p.DNSPort = *DNSPort
+	p.DNSRegex = *DNSRegex
 
-	if *requestLogFile != "" {
-		proxy.Log.RequestLogFile = *requestLogFile
-	}
+	proxy.Log.Level.Parse(*logLevel)
+	proxy.Log.RequestLogFile = *requestLogFile
 
 	if *logJSON {
 		proxy.Log.Format = proxy.LogJSON
@@ -96,8 +91,6 @@ func main() {
 
 	if *logDebug {
 		proxy.Log.Level = proxy.LogDEBUG
-	} else if *logLevel != "" {
-		proxy.Log.Level.Parse(*logLevel)
 	}
 
 	proxy.Log.WithField("log_level", proxy.Log.Level).Debug("")

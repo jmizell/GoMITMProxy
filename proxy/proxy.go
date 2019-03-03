@@ -155,14 +155,14 @@ func (p *Proxy) Shutdown() (err error) {
 	if p.httpServer != nil {
 		httpErr := p.httpServer.Shutdown(context.Background())
 		if httpErr != nil {
-			err = httpErr
+			err = fmt.Errorf("http_server_error=\"%s\"", httpErr.Error())
 		}
 	}
 
 	if p.tlsServer != nil {
 		tlsErr := p.tlsServer.Shutdown(context.Background())
 		if tlsErr != nil {
-			err = tlsErr
+			err = fmt.Errorf("%s https_server_error=\"%s\"", err.Error(), tlsErr.Error())
 		}
 	}
 
