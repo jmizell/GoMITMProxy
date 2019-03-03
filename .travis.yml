@@ -1,0 +1,12 @@
+language: go
+
+go:
+  - 1.12.x
+
+jobs:
+  include:
+    - stage: test
+      script: make test
+    - stage: build
+      script: make build
+
