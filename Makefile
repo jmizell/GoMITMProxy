@@ -13,9 +13,10 @@ gomitmproxy:
 		github.com/jmizell/GoMITMProxy/cmd/gomitmproxy
 
 test:
-	go test -cover -v -timeout=15m ./...
+	go test -cover -coverprofile=cover.out -v -timeout=15m ./... \
+	&& go tool cover -html=cover.out -o cover.html
 
 clean:
-	rm -f *.crt *.key gomitmproxy
+	rm -f *.crt *.key cover.out cover.html gomitmproxy
 
 .EXPORT_ALL_VARIABLES:

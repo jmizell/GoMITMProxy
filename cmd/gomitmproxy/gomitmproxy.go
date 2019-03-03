@@ -11,6 +11,8 @@ import (
 	"log"
 	"os"
 	"path"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jmizell/GoMITMProxy/proxy"
@@ -22,8 +24,8 @@ func main() {
 	CAKeyFile := flag.String("ca_key_file", "", "path to certificate authority key file")
 	CACertFile := flag.String("ca_cert_file", "", "path to certificate authority cert file")
 	ListenAddr := flag.String("listen_addr", "127.0.0.1", "network address bind to")
-	HTTPSPort := flag.Int("https_port", 0, "port to listen for https requests")
-	HTTPPort := flag.Int("http_port", 0, "port to listen for http requests")
+	HTTPSPorts := flag.String("https_ports", "0", "ports to listen for https requests")
+	HTTPPorts := flag.String("http_ports", "0", "ports to listen for http requests")
 	DNSPort := flag.Int("dns_port", 0, "port to listen for dns requests")
 	DNSServer := flag.String("dns_server", "", "use the supplied dns resolver, instead of system defaults")
 	DNSRegex := flag.String("dns_regex", "", "domains matching this regex pattern will return the proxy address")
@@ -73,10 +75,19 @@ func main() {
 			proxy.Log.WithError(err).WithField("file", *config).Fatal("unmarshal proxy config")
 		}
 	}
+
+	var err error
+	p.HTTPSPorts, err = listToInts(*HTTPSPorts, ",")
+	if err != nil {
+		proxy.Log.WithError(err).WithField("https_ports", *HTTPSPorts).Fatal("flag parse failure")
+	}
+	p.HTTPPorts, err = listToInts(*HTTPPorts, ",")
+	if err != nil {
+		proxy.Log.WithError(err).WithField("http_ports", *HTTPPorts).Fatal("flag parse failure")
+	}
+
 	p.CAKeyFile = *CAKeyFile
 	p.CACertFile = *CACertFile
-	p.HTTPSPort = *HTTPSPort
-	p.HTTPPort = *HTTPPort
 	p.ListenAddr = *ListenAddr
 	p.DNSServer = *DNSServer
 	p.DNSPort = *DNSPort
@@ -99,14 +110,28 @@ func main() {
 	proxy.Log.WithField("ca_key_file", p.CAKeyFile).Debug("")
 	proxy.Log.WithField("ca_cert_file", p.CACertFile).Debug("")
 	proxy.Log.WithField("listen_addr", p.ListenAddr).Debug("")
-	proxy.Log.WithField("https_port", p.HTTPSPort).Debug("")
-	proxy.Log.WithField("http_port", p.HTTPPort).Debug("")
+	proxy.Log.WithField("https_ports", p.HTTPSPorts).Debug("")
+	proxy.Log.WithField("http_ports", p.HTTPPorts).Debug("")
 	proxy.Log.WithField("dns_port", p.DNSPort).Debug("")
 	proxy.Log.WithField("dns_server", p.DNSServer).Debug("")
 	proxy.Log.WithField("dns_regex", p.DNSRegex).Debug("")
 
-	err := p.Run()
-	if err != nil {
+	if err = p.Run(); err != nil {
 		proxy.Log.WithError(err).Fatal("proxy server failed")
 	}
+}
+
+func listToInts(s, sep string) (ints []int, err error) {
+
+	for _, v := range strings.Split(s, sep) {
+
+		i, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, err
+		}
+
+		ints = append(ints, i)
+	}
+
+	return ints, nil
 }

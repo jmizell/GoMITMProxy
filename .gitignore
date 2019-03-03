@@ -14,3 +14,5 @@
 *.crt
 *.key
 .idea/
+cover.out
+cover.html

@@ -36,13 +36,17 @@ type Certs struct {
 
 func (c *Certs) Get(vhost string) (*tls.Certificate, error) {
 
+	if vhost == "" {
+		return nil, nil
+	}
+
 	if c.certStore == nil {
 		c.certStore = map[string]*tls.Certificate{}
 	}
 
 	c.lock.Lock()
+	defer c.lock.Unlock()
 	key, ok := c.certStore[vhost]
-	c.lock.Unlock()
 	if ok {
 		return key, nil
 	}
@@ -51,9 +55,7 @@ func (c *Certs) Get(vhost string) (*tls.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.lock.Lock()
 	c.certStore[vhost] = key
-	c.lock.Unlock()
 
 	return key, nil
 }

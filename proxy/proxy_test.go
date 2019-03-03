@@ -1,29 +1,136 @@
+// Copyright 2019 The Jeremy Mizell. All rights reserved.
+// Use of this source code is governed by a GPLv3 license that can be found in the LICENSE file.
+
 package proxy
 
 import (
+	"crypto/tls"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
-type testProxyHandler struct {
-	requests    []*http.Request
-	responses   []http.ResponseWriter
-	response    []byte
-	writeErrors []error
-}
+func TestProxy_Run(t *testing.T) {
 
-func (t *testProxyHandler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
-	t.requests = append(t.requests, req)
-	t.responses = append(t.responses, resp)
-	_, err := resp.Write(t.response)
-	t.writeErrors = append(t.writeErrors, err)
+	t.Parallel()
+
+	certFilename, keyFilename, err := testingCAPair()
+	if err != nil {
+		t.Fatalf("failed to create testing ca key pair, %s", err.Error())
+	}
+	defer func() {
+		if err := os.Remove(certFilename); err != nil {
+			t.Fatalf("error deleting %s, %s", certFilename, err.Error())
+		}
+		if err := os.Remove(keyFilename); err != nil {
+			t.Fatalf("error deleting %s, %s", keyFilename, err.Error())
+		}
+	}()
+
+	var newProxyCalls []*url.URL
+	proxyHandler := &testProxyHandler{response: []byte("okay")}
+	proxy := &Proxy{
+		CAKeyFile:  keyFilename,
+		CACertFile: certFilename,
+		newProxy: func(url *url.URL) http.Handler {
+			newProxyCalls = append(newProxyCalls, url)
+			return proxyHandler
+		},
+		ListenAddr: "localhost",
+		HTTPPorts: []int{0},
+		HTTPSPorts: []int{0},
+	}
+
+	go func() {
+		if err := proxy.Run(); err != nil {
+			t.Fatalf("server exited non-nil error, %s", err.Error())
+		}
+	}()
+	defer func() {
+		_ = proxy.Shutdown()
+	}()
+	time.Sleep(time.Millisecond * 500)
+
+	if len(proxy.HTTPSPorts) == 0 {
+		t.Fatalf("https port was not set")
+	}
+
+	if len(proxy.HTTPPorts) == 0 {
+		t.Fatalf("http port was not set")
+	}
+
+	resp, err := http.Get(fmt.Sprintf("http://localhost:%d", proxy.HTTPPorts[0]))
+	if err != nil {
+		t.Fatalf("failed to make a http connect to test proxy, %s", err.Error())
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected response code %d, but received %d", http.StatusOK, resp.StatusCode)
+	}
+
+	respBody, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("response body read returned error, %s", err.Error())
+	}
+	if string(respBody) != "okay" {
+		t.Fatalf("expected response body to contain \"okay\", but received %s", string(respBody))
+	}
+
+
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		Timeout:   time.Second * 10,
+	}
+	req, err := http.NewRequest("GET", fmt.Sprintf("https://localhost:%d", proxy.HTTPSPorts[0]), nil)
+	if err != nil {
+		t.Fatalf("failed to create http request, %s", err.Error())
+	}
+	req.Header.Add("Host", "example.com")
+
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("failed to make a tls connect to test proxy, %s", err.Error())
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected response code %d, but received %d", http.StatusOK, resp.StatusCode)
+	}
+
+	respBody, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("response body read returned error, %s", err.Error())
+	}
+	if string(respBody) != "okay" {
+		t.Fatalf("expected response body to contain \"okay\", but received %s", string(respBody))
+	}
+
+	for _, chain := range resp.TLS.VerifiedChains {
+		for _, cert := range chain {
+			if !cert.IsCA {
+				if time.Now().After(cert.NotAfter) {
+					t.Fatalf("returned cert expired %s", cert.NotAfter.Local().String())
+				}
+			}
+		}
+	}
+
+	if resp.TLS.ServerName != "localhost" {
+		t.Fatal("returned certificate was not valid for request host")
+	}
 }
 
 func TestProxy_ServeHTTP(t *testing.T) {
+
+	t.Parallel()
 
 	type ServeTests struct {
 		name   string
@@ -98,4 +205,18 @@ func TestProxy_ServeHTTP(t *testing.T) {
 
 		})
 	}
+}
+
+type testProxyHandler struct {
+	requests    []*http.Request
+	responses   []http.ResponseWriter
+	response    []byte
+	writeErrors []error
+}
+
+func (t *testProxyHandler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
+	t.requests = append(t.requests, req)
+	t.responses = append(t.responses, resp)
+	_, err := resp.Write(t.response)
+	t.writeErrors = append(t.writeErrors, err)
 }

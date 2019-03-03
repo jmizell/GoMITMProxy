@@ -1,6 +1,8 @@
-[![Build Status](https://travis-ci.com/jmizell/GoMITMProxy.svg?branch=master)](https://travis-ci.com/jmizell/GoMITMProxy) ![GitHub](https://img.shields.io/github/license/jmizell/GoMITMProxy.svg?color=00ff00)
 
 # GoMITMProxy
+[![Build Status](https://travis-ci.com/jmizell/GoMITMProxy.svg?branch=master)](https://travis-ci.com/jmizell/GoMITMProxy)
+![GitHub](https://img.shields.io/github/license/jmizell/GoMITMProxy.svg?color=00ff00)
+
 Golang Man in the Middle Proxy
 
 ## Build
@@ -10,18 +12,26 @@ Golang Man in the Middle Proxy
 ```make test```
 
 ## Install
-#### Local Install
 
-To use, make sure your [GOBIN is in your path](https://golang.org/cmd/go/), and then run 
+### Local Install
 
-```go install github.com/jmizell/GoMITMProxy/cmd/gomitmproxy```
+To use, make sure you have go >= 1.12.x installed, and your 
+[GOBIN is in your path](https://golang.org/cmd/go/). Then run 
 
-#### Docker
-[![](https://images.microbadger.com/badges/version/jmizell/gomitmproxy.svg)](https://microbadger.com/images/jmizell/gomitmproxy "Get your own version badge on microbadger.com")[![](https://images.microbadger.com/badges/image/jmizell/gomitmproxy.svg)](https://microbadger.com/images/jmizell/gomitmproxy "Get your own image badge on microbadger.com")
+```
+go get github.com/jmizell/GoMITMProxy
+go install github.com/jmizell/GoMITMProxy/cmd/gomitmproxy
+```
+
+### Docker
+[![](https://images.microbadger.com/badges/version/jmizell/gomitmproxy.svg)](https://microbadger.com/images/jmizell/gomitmproxy)
+[![](https://images.microbadger.com/badges/image/jmizell/gomitmproxy.svg)](https://microbadger.com/images/jmizell/gomitmproxy)
 
 Copies of each realease can be found in [jmizell/gomitmproxy](https://hub.docker.com/r/jmizell/gomitmproxy).
 
-```docker pull jmizell/gomitmproxy:latest```
+```
+docker pull jmizell/gomitmproxy:latest
+```
 
 ## Usage
 
@@ -44,10 +54,10 @@ Usage: gomitmproxy [options]
     	use the supplied dns resolver, instead of system defaults
   -generate_ca_only
     	generate a certificate authority, and exit
-  -http_port int
-    	port to listen for http requests
-  -https_port int
-    	port to listen for https requests
+  -http_ports string
+    	ports to listen for http requests (default "0")
+  -https_ports string
+    	ports to listen for https requests (default "0")
   -json
     	output json log format to standard out
   -key_age_hours int
