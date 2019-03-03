@@ -4,18 +4,11 @@
 package proxy
 
 import (
-	"crypto/rsa"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
-	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
-	"os"
-	"time"
 
 	"github.com/benburkert/dns"
 )
@@ -41,6 +34,7 @@ type Proxy struct {
 }
 
 func (p *Proxy) Run() (err error) {
+	defer Log.Close()
 
 	p.certs = &Certs{}
 	if p.CACertFile == "" || p.CAKeyFile == "" {
@@ -77,22 +71,19 @@ func (p *Proxy) Run() (err error) {
 		}
 		go func() {
 			if err := dnsServer.ListenAndServe(); err != nil {
-				log.Printf("fatal dns server: %s", err.Error())
-				os.Exit(DNSServerFatal)
+				Log.WithError(err).WithExitCode(DNSServerFatal).Fatal("dns server failed")
 			}
 		}()
 	}
 
 	go func() {
 		if err := p.serve(); err != nil {
-			log.Printf("fatal http server: %s", err.Error())
-			os.Exit(HTTPServerFatal)
+			Log.WithError(err).WithExitCode(HTTPServerFatal).Fatal("http server failed")
 		}
 	}()
 
 	if err := p.serveTLS(); err != nil {
-		log.Printf("fatal https server: %s", err.Error())
-		os.Exit(TLSServerFatal)
+		Log.WithError(err).WithExitCode(TLSServerFatal).Fatal("https server failed")
 	}
 
 	return nil
@@ -119,7 +110,8 @@ func (p *Proxy) serveTLS() (err error) {
 
 	p.HTTPSPort = connection.Addr().(*net.TCPAddr).Port
 	ip := connection.Addr().(*net.TCPAddr).IP
-	log.Printf("tls server listening on %s:%d", ip, p.HTTPSPort)
+	Log.WithField("addr", fmt.Sprintf("%s:%d", ip, p.HTTPSPort)).
+		Info("https server started")
 
 	return p.tlsServer.Serve(tlsListener)
 }
@@ -141,19 +133,13 @@ func (p *Proxy) serve() error {
 
 	p.HTTPPort = connection.Addr().(*net.TCPAddr).Port
 	ip := connection.Addr().(*net.TCPAddr).IP
-	log.Printf("http server listening on %s:%d", ip, p.HTTPPort)
+	Log.WithField("addr", fmt.Sprintf("%s:%d", ip, p.HTTPPort)).
+		Info("http server started")
 
 	return p.httpServer.Serve(connection)
 }
 
 func (p *Proxy) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
-
-	//body, err := ioutil.ReadAll(req.Body)
-	//if err != nil {
-	//	log.Printf("error reading request body: %s", err.Error())
-	//	return
-	//}
-	//req.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 
 	req.URL.Host = req.Host
 	req.URL.Scheme = "http"
@@ -163,33 +149,9 @@ func (p *Proxy) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 
 	proxy := httputil.NewSingleHostReverseProxy(req.URL)
 	proxy.ServeHTTP(resp, req)
-	log.Printf("proxy: url=%s", req.URL.String())
+	Log.WithRequest(req).Info("")
 }
 
 func (p *Proxy) sniLookup(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	return p.certs.Get(clientHello.ServerName)
-}
-
-func WriteCA(certFileName, keyFileName string, cert *x509.Certificate, key *rsa.PrivateKey) error {
-	if certFileName == "" || keyFileName == "" {
-		startTime := time.Now().Unix()
-		certFileName = fmt.Sprintf("gomitmproxy_ca_%d.crt", startTime)
-		keyFileName = fmt.Sprintf("gomitmproxy_ca_%d.key", startTime)
-	}
-
-	keyBytes := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	err := ioutil.WriteFile(keyFileName, keyBytes, 0600)
-	if err != nil {
-		return err
-	}
-	log.Printf("wrote certificate authority key to %s", keyFileName)
-
-	certBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
-	err = ioutil.WriteFile(certFileName, certBytes, 0600)
-	if err != nil {
-		return err
-	}
-	log.Printf("wrote certificate authority cert to %s", certFileName)
-
-	return nil
 }

@@ -6,7 +6,6 @@ package proxy
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"regexp"
 	"time"
@@ -51,7 +50,8 @@ func (d *DNSServer) ListenAndServe() (err error) {
 		Addr:    fmt.Sprintf("%s:%d", d.ListenAddr, d.DNSPort),
 		Handler: d,
 	}
-	log.Printf("dns server listening on %s:%d", d.ListenAddr, d.DNSPort)
+	Log.WithField("addr", fmt.Sprintf("%s:%d", d.ListenAddr, d.DNSPort)).
+		Info("dns server started")
 
 	return d.server.ListenAndServe(context.Background())
 }
@@ -77,7 +77,7 @@ func (d *DNSServer) ServeDNS(ctx context.Context, w dns.MessageWriter, r *dns.Qu
 	if !found && !matchRegex {
 		res, err := d.dnsClient.Do(context.Background(), r)
 		if err != nil {
-			log.Fatal(err)
+			Log.WithError(err).Error("dns client forwarding failed")
 		}
 
 		for _, r := range res.Answers {

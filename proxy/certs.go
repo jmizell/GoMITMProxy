@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/big"
-	"os"
 	"sync"
 	"time"
 )
@@ -180,8 +179,32 @@ func genSerial() *big.Int {
 
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
-		os.Exit(GenCertFatal)
+		Log.WithError(err).WithExitCode(GenCertFatal).Fatal("generate serial")
 	}
 
 	return serialNumber
+}
+
+func WriteCA(certFileName, keyFileName string, cert *x509.Certificate, key *rsa.PrivateKey) error {
+	if certFileName == "" || keyFileName == "" {
+		startTime := time.Now().Unix()
+		certFileName = fmt.Sprintf("gomitmproxy_ca_%d.crt", startTime)
+		keyFileName = fmt.Sprintf("gomitmproxy_ca_%d.key", startTime)
+	}
+
+	keyBytes := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	err := ioutil.WriteFile(keyFileName, keyBytes, 0600)
+	if err != nil {
+		return err
+	}
+	Log.WithField("key_file", keyFileName).Info("wrote certificate authority key")
+
+	certBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
+	err = ioutil.WriteFile(certFileName, certBytes, 0600)
+	if err != nil {
+		return err
+	}
+	Log.WithField("cert_file", certFileName).Info("wrote certificate authority certificate")
+
+	return nil
 }

@@ -28,6 +28,10 @@ func main() {
 	DNSServer := flag.String("dns_server", "", "use the supplied dns resolver, instead of system defaults")
 	DNSRegex := flag.String("dns_regex", "", "domains matching this regex pattern will return the proxy address")
 	config := flag.String("config", "", "proxy config file path")
+	requestLogFile := flag.String("request_log_file", "", "file to log http requests")
+	logJSON := flag.Bool("json", false, "output json log format to standard out")
+	logDebug := flag.Bool("debug", false, "enable debug logging")
+	logLevel := flag.String("log_level", "", "set logging to log level")
 	flag.Usage = func() {
 		path.Base(os.Args[0])
 		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options]\n\n", path.Base(os.Args[0]))
@@ -68,17 +72,48 @@ func main() {
 	} else {
 		data, err := ioutil.ReadFile(*config)
 		if err != nil {
-			log.Fatal(err.Error())
+			proxy.Log.WithError(err).WithField("file", *config).Fatal("read config")
+		}
+
+		err = json.Unmarshal(data, proxy.Log)
+		if err != nil {
+			proxy.Log.WithError(err).WithField("file", *config).Fatal("unmarshal log config")
 		}
 
 		err = json.Unmarshal(data, p)
 		if err != nil {
-			log.Fatal(err.Error())
+			proxy.Log.WithError(err).WithField("file", *config).Fatal("unmarshal proxy config")
 		}
 	}
 
+	if *requestLogFile != "" {
+		proxy.Log.RequestLogFile = *requestLogFile
+	}
+
+	if *logJSON {
+		proxy.Log.Format = proxy.LogJSON
+	}
+
+	if *logDebug {
+		proxy.Log.Level = proxy.LogDEBUG
+	} else if *logLevel != "" {
+		proxy.Log.Level.Parse(*logLevel)
+	}
+
+	proxy.Log.WithField("log_level", proxy.Log.Level).Debug("")
+	proxy.Log.WithField("log_format", proxy.Log.Format).Debug("")
+	proxy.Log.WithField("request_log_file", proxy.Log.RequestLogFile).Debug("")
+	proxy.Log.WithField("ca_key_file", p.CAKeyFile).Debug("")
+	proxy.Log.WithField("ca_cert_file", p.CACertFile).Debug("")
+	proxy.Log.WithField("listen_addr", p.ListenAddr).Debug("")
+	proxy.Log.WithField("https_port", p.HTTPSPort).Debug("")
+	proxy.Log.WithField("http_port", p.HTTPPort).Debug("")
+	proxy.Log.WithField("dns_port", p.DNSPort).Debug("")
+	proxy.Log.WithField("dns_server", p.DNSServer).Debug("")
+	proxy.Log.WithField("dns_regex", p.DNSRegex).Debug("")
+
 	err := p.Run()
 	if err != nil {
-		log.Fatal(err.Error())
+		proxy.Log.WithError(err).Fatal("proxy server failed")
 	}
 }
