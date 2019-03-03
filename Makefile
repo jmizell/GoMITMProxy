@@ -1,4 +1,5 @@
-SHELL := /bin/bash
+SHELL  := /bin/bash
+GOPATH :=
 
 all: test gomitmproxy
 
