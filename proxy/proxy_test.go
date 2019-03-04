@@ -5,6 +5,7 @@ package proxy
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -67,7 +68,7 @@ func TestProxy_Run(t *testing.T) {
 
 	resp, err := http.Get(fmt.Sprintf("http://localhost:%d", proxy.HTTPPorts[0]))
 	if err != nil {
-		t.Fatalf("failed to make a http connect to test proxy, %s", err.Error())
+		t.Fatalf("failed to make a http connection to test proxy, %s", err.Error())
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -83,22 +84,24 @@ func TestProxy_Run(t *testing.T) {
 	}
 
 
-
+	rootCAs := x509.NewCertPool()
+	rootCAs.AddCert(proxy.certs.caCert)
 	client := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig:  &tls.Config{
+				RootCAs: rootCAs,
+			},
 		},
 		Timeout:   time.Second * 10,
 	}
-	req, err := http.NewRequest("GET", fmt.Sprintf("https://localhost:%d", proxy.HTTPSPorts[0]), nil)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("https://localhost:%d", proxy.HTTPSPorts[0]), nil)
 	if err != nil {
 		t.Fatalf("failed to create http request, %s", err.Error())
 	}
-	req.Header.Add("Host", "example.com")
 
 	resp, err = client.Do(req)
 	if err != nil {
-		t.Fatalf("failed to make a tls connect to test proxy, %s", err.Error())
+		t.Fatalf("failed to make a tls connection to test proxy, %s", err.Error())
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -113,18 +116,23 @@ func TestProxy_Run(t *testing.T) {
 		t.Fatalf("expected response body to contain \"okay\", but received %s", string(respBody))
 	}
 
+	var foundValidCert bool
 	for _, chain := range resp.TLS.VerifiedChains {
 		for _, cert := range chain {
 			if !cert.IsCA {
+				for _, domain := range cert.DNSNames {
+					if domain == "localhost" {
+						foundValidCert = true
+					}
+				}
 				if time.Now().After(cert.NotAfter) {
 					t.Fatalf("returned cert expired %s", cert.NotAfter.Local().String())
 				}
 			}
 		}
 	}
-
-	if resp.TLS.ServerName != "localhost" {
-		t.Fatal("returned certificate was not valid for request host")
+	if !foundValidCert {
+		t.Fatal("no returned certificate contained a valid domain")
 	}
 }
 
