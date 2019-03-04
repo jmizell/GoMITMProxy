@@ -4,13 +4,12 @@
 package proxy
 
 import (
-	"context"
-	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"time"
 
 	"github.com/benburkert/dns"
 )
@@ -23,15 +22,21 @@ var defaultProxyHandler = func(url *url.URL) http.Handler {
 	return httputil.NewSingleHostReverseProxy(url)
 }
 
+type proxyServer interface {
+	Serve(chan bool, http.Handler) error
+	GetPort() int
+	Shutdown() error
+}
+
 type Proxy struct {
-	tlsServer  *http.Server
-	tlsConfig  *tls.Config
-	httpServer *http.Server
-	certs      *Certs
+	tlsServers   []proxyServer
+	httpServers  []proxyServer
+	serverErrors chan error
+	certs        *Certs
 
 	ListenAddr string `json:"listen_addr"`
-	HTTPSPort  int    `json:"https_port"`
-	HTTPPort   int    `json:"http_port"`
+	HTTPSPorts []int  `json:"https_ports"`
+	HTTPPorts  []int  `json:"http_ports"`
 	CAKeyFile  string `json:"ca_key_file"`
 	CACertFile string `json:"ca_cert_file"`
 	DNSPort    int    `json:"dns_port"`
@@ -44,19 +49,23 @@ type Proxy struct {
 func (p *Proxy) Run() (err error) {
 	defer Log.Close()
 
-	p.certs = &Certs{}
-	if p.CACertFile == "" || p.CAKeyFile == "" {
-		p.certs.caKey, p.certs.caCert, err = p.certs.GenerateCAPair()
+	p.serverErrors = make(chan error, len(p.HTTPSPorts)+len(p.HTTPPorts))
+
+	if p.certs == nil {
+		p.certs = &Certs{}
+		if p.CACertFile == "" || p.CAKeyFile == "" {
+			p.certs.caKey, p.certs.caCert, err = p.certs.GenerateCAPair()
+			if err != nil {
+				return err
+			}
+			err = WriteCA(p.CACertFile, p.CAKeyFile, p.certs.caCert, p.certs.caKey)
+		} else {
+			err = p.certs.LoadCAPair(p.CAKeyFile, p.CACertFile)
+		}
+
 		if err != nil {
 			return err
 		}
-		err = WriteCA(p.CACertFile, p.CAKeyFile, p.certs.caCert, p.certs.caKey)
-	} else {
-		err = p.certs.LoadCAPair(p.CAKeyFile, p.CACertFile)
-	}
-
-	if err != nil {
-		return err
 	}
 
 	if p.DNSServer != "" {
@@ -74,99 +83,121 @@ func (p *Proxy) Run() (err error) {
 	}
 
 	if p.DNSPort > 0 {
-		dnsServer := DNSServer{
-			ListenAddr: p.ListenAddr,
-			DNSPort:    p.DNSPort,
-			DNSServer:  p.DNSServer,
-			DNSRegex:   p.DNSRegex,
-		}
-		go func() {
-			if err := dnsServer.ListenAndServe(); err != nil {
-				Log.WithError(err).WithExitCode(DNSServerFatal).Fatal("dns server failed")
-			}
-		}()
+		go p.serveDNS()
 	}
 
-	go func() {
-		if err := p.serve(); err != http.ErrServerClosed && err != nil {
-			Log.WithError(err).WithExitCode(HTTPServerFatal).Fatal("http server failed")
-		}
-	}()
+	if err := p.runHTTPServers(); err != nil {
+		Log.WithError(err).WithExitCode(HTTPServerFatal).Fatal("http server failed")
+	}
 
-	if err := p.serveTLS(); err != http.ErrServerClosed && err != nil {
+	if err := p.runTLSServers(); err != nil {
 		Log.WithError(err).WithExitCode(TLSServerFatal).Fatal("https server failed")
+	}
+
+	err = <-p.serverErrors
+	if err != http.ErrServerClosed && err != nil {
+		Log.WithError(err).Fatal("server exited with unexpected error")
+		return p.Shutdown()
 	}
 
 	return nil
 }
 
-func (p *Proxy) serveTLS() (err error) {
+func (p *Proxy) serveDNS() {
 
-	p.tlsServer = &http.Server{}
-
-	p.tlsConfig = &tls.Config{}
-	p.tlsConfig.GetCertificate = p.sniLookup
-
-	listenAddress := fmt.Sprintf("%s:", p.ListenAddr)
-	if p.HTTPSPort > 0 {
-		listenAddress = fmt.Sprintf("%s:%d", p.ListenAddr, p.HTTPSPort)
+	dnsServer := DNSServer{
+		ListenAddr: p.ListenAddr,
+		DNSPort:    p.DNSPort,
+		DNSServer:  p.DNSServer,
+		DNSRegex:   p.DNSRegex,
 	}
-	connection, err := net.Listen("tcp", listenAddress)
-	if err != nil {
-		return err
+
+	if err := dnsServer.ListenAndServe(); err != nil {
+		Log.WithError(err).WithExitCode(DNSServerFatal).Fatal("dns server failed")
 	}
-	tlsListener := tls.NewListener(connection, p.tlsConfig)
-
-	p.tlsServer.Handler = p
-
-	p.HTTPSPort = connection.Addr().(*net.TCPAddr).Port
-	ip := connection.Addr().(*net.TCPAddr).IP
-	Log.WithField("addr", fmt.Sprintf("%s:%d", ip, p.HTTPSPort)).
-		Info("https server started")
-
-	return p.tlsServer.Serve(tlsListener)
 }
 
-func (p *Proxy) serve() error {
+func (p *Proxy) runTLSServers() error {
 
-	p.httpServer = &http.Server{}
+	var ports []int
+	for _, port := range p.HTTPSPorts {
 
-	listenAddress := fmt.Sprintf("%s:", p.ListenAddr)
-	if p.HTTPPort > 0 {
-		listenAddress = fmt.Sprintf("%s:%d", p.ListenAddr, p.HTTPPort)
+		ready := make(chan bool, 1)
+		srv := &TLSProxyServer{
+			listenAddr: p.ListenAddr,
+			port:       port,
+			certs:      p.certs,
+		}
+
+		go func() {
+			p.serverErrors <- srv.Serve(ready, p)
+		}()
+
+		select {
+		case <-ready:
+		case <-time.After(1 * time.Second):
+			return fmt.Errorf("timed out waiting for tls server %s:%d to be ready", p.ListenAddr, port)
+		}
+
+		ports = append(ports, srv.GetPort())
+		p.tlsServers = append(p.tlsServers, srv)
 	}
-	connection, err := net.Listen("tcp", listenAddress)
-	if err != nil {
-		return err
+	p.HTTPSPorts = ports
+
+	return nil
+}
+
+func (p *Proxy) runHTTPServers() error {
+
+	var ports []int
+	for _, port := range p.HTTPPorts {
+
+		ready := make(chan bool, 1)
+		srv := &HTTPProxyServer{
+			listenAddr: p.ListenAddr,
+			port:       port,
+		}
+
+		go func() {
+			p.serverErrors <- srv.Serve(ready, p)
+		}()
+
+		select {
+		case <-ready:
+		case <-time.After(1 * time.Second):
+			return fmt.Errorf("timed out waiting for http server %s:%d to be ready", p.ListenAddr, port)
+		}
+
+		ports = append(ports, srv.GetPort())
+		p.httpServers = append(p.httpServers, srv)
 	}
+	p.HTTPPorts = ports
 
-	p.httpServer.Handler = p
-
-	p.HTTPPort = connection.Addr().(*net.TCPAddr).Port
-	ip := connection.Addr().(*net.TCPAddr).IP
-	Log.WithField("addr", fmt.Sprintf("%s:%d", ip, p.HTTPPort)).
-		Info("http server started")
-
-	return p.httpServer.Serve(connection)
+	return nil
 }
 
 func (p *Proxy) Shutdown() (err error) {
 
-	if p.httpServer != nil {
-		httpErr := p.httpServer.Shutdown(context.Background())
-		if httpErr != nil {
-			err = fmt.Errorf("http_server_error=\"%s\"", httpErr.Error())
+	servers := append(p.httpServers, p.tlsServers...)
+	done := make(chan error, len(servers))
+	for _, srv := range servers {
+		go func(s proxyServer) {
+			done <- s.Shutdown()
+		}(srv)
+	}
+
+	for i := 0; i <= len(servers); i++ {
+		select {
+		case err := <-done:
+			if err != http.ErrServerClosed && err != nil {
+				return err
+			}
+		case <-time.After(time.Second * 10):
+			return fmt.Errorf("timed out waiting for server to shutdown")
 		}
 	}
 
-	if p.tlsServer != nil {
-		tlsErr := p.tlsServer.Shutdown(context.Background())
-		if tlsErr != nil {
-			err = fmt.Errorf("%s https_server_error=\"%s\"", err.Error(), tlsErr.Error())
-		}
-	}
-
-	return err
+	return nil
 }
 
 func (p *Proxy) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
@@ -183,8 +214,4 @@ func (p *Proxy) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 
 	p.newProxy(req.URL).ServeHTTP(resp, req)
 	Log.WithRequest(req).Info("")
-}
-
-func (p *Proxy) sniLookup(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	return p.certs.Get(clientHello.ServerName)
 }
