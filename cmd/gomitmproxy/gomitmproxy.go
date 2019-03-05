@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path"
 	"strconv"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jmizell/GoMITMProxy/proxy"
+	"github.com/jmizell/GoMITMProxy/proxy/log"
 )
 
 func main() {
@@ -33,7 +33,7 @@ func main() {
 	requestLogFile := flag.String("request_log_file", "", "file to log http requests")
 	logJSON := flag.Bool("json", false, "output json log format to standard out")
 	logDebug := flag.Bool("debug", false, "enable debug logging")
-	logLevel := flag.String("log_level", "info", "set logging to log level")
+	logLevel := flag.String("log_level", log.INFO.String(), "set logging to log level")
 	flag.Usage = func() {
 		path.Base(os.Args[0])
 		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options]\n\n", path.Base(os.Args[0]))
@@ -41,6 +41,7 @@ func main() {
 	}
 	flag.Parse()
 
+	// Generate certificate authority only, and exit
 	if *genCAOnly {
 		c := proxy.Certs{
 			KeyAge: time.Duration(*KeyAge) * time.Hour,
@@ -58,34 +59,37 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Parse config file to values
 	p := proxy.Proxy{}
+	logConfig := log.NewDefaultConfig()
 	if *config != "" {
+
 		data, err := ioutil.ReadFile(*config)
 		if err != nil {
-			proxy.Log.WithError(err).WithField("file", *config).Fatal("read config")
+			log.WithError(err).WithField("file", *config).Fatal("read config")
 		}
 
-		err = json.Unmarshal(data, proxy.Log)
+		err = json.Unmarshal(data, logConfig)
 		if err != nil {
-			proxy.Log.WithError(err).WithField("file", *config).Fatal("unmarshal log config")
+			log.WithError(err).WithField("file", *config).Fatal("unmarshal log config")
 		}
 
 		err = json.Unmarshal(data, p)
 		if err != nil {
-			proxy.Log.WithError(err).WithField("file", *config).Fatal("unmarshal proxy config")
+			log.WithError(err).WithField("file", *config).Fatal("unmarshal proxy config")
 		}
 	}
 
+	// Setting proxy command line arguments, values supersede config values
 	var err error
 	p.HTTPSPorts, err = listToInts(*HTTPSPorts, ",")
 	if err != nil {
-		proxy.Log.WithError(err).WithField("https_ports", *HTTPSPorts).Fatal("flag parse failure")
+		log.WithError(err).WithField("https_ports", *HTTPSPorts).Fatal("flag parse failure")
 	}
 	p.HTTPPorts, err = listToInts(*HTTPPorts, ",")
 	if err != nil {
-		proxy.Log.WithError(err).WithField("http_ports", *HTTPPorts).Fatal("flag parse failure")
+		log.WithError(err).WithField("http_ports", *HTTPPorts).Fatal("flag parse failure")
 	}
-
 	p.CAKeyFile = *CAKeyFile
 	p.CACertFile = *CACertFile
 	p.ListenAddr = *ListenAddr
@@ -93,31 +97,39 @@ func main() {
 	p.DNSPort = *DNSPort
 	p.DNSRegex = *DNSRegex
 
-	proxy.Log.Level.Parse(*logLevel)
-	proxy.Log.RequestLogFile = *requestLogFile
-
+	// Setting logger command line arguments, values supersede config values
+	logConfig.Level.Parse(*logLevel)
 	if *logJSON {
-		proxy.Log.Format = proxy.LogJSON
+		logConfig.Format = log.JSON
 	}
-
+	if *requestLogFile != "" {
+		logConfig.RequestLogFile = *requestLogFile
+	}
 	if *logDebug {
-		proxy.Log.Level = proxy.LogDEBUG
+		logConfig.Level = log.DEBUG
+	}
+	logger, requestWriter := logConfig.GetLogger()
+	log.DefaultLogger = logger
+	if requestWriter != nil {
+		defer requestWriter.Close()
 	}
 
-	proxy.Log.WithField("log_level", proxy.Log.Level).Debug("")
-	proxy.Log.WithField("log_format", proxy.Log.Format).Debug("")
-	proxy.Log.WithField("request_log_file", proxy.Log.RequestLogFile).Debug("")
-	proxy.Log.WithField("ca_key_file", p.CAKeyFile).Debug("")
-	proxy.Log.WithField("ca_cert_file", p.CACertFile).Debug("")
-	proxy.Log.WithField("listen_addr", p.ListenAddr).Debug("")
-	proxy.Log.WithField("https_ports", p.HTTPSPorts).Debug("")
-	proxy.Log.WithField("http_ports", p.HTTPPorts).Debug("")
-	proxy.Log.WithField("dns_port", p.DNSPort).Debug("")
-	proxy.Log.WithField("dns_server", p.DNSServer).Debug("")
-	proxy.Log.WithField("dns_regex", p.DNSRegex).Debug("")
+	// Output config values for debugging
+	log.WithField("log_level", logConfig.Level).Debug("")
+	log.WithField("log_format", logConfig.Format).Debug("")
+	log.WithField("request_log_file", logConfig.RequestLogFile).Debug("")
+	log.WithField("ca_key_file", p.CAKeyFile).Debug("")
+	log.WithField("ca_cert_file", p.CACertFile).Debug("")
+	log.WithField("listen_addr", p.ListenAddr).Debug("")
+	log.WithField("https_ports", p.HTTPSPorts).Debug("")
+	log.WithField("http_ports", p.HTTPPorts).Debug("")
+	log.WithField("dns_port", p.DNSPort).Debug("")
+	log.WithField("dns_server", p.DNSServer).Debug("")
+	log.WithField("dns_regex", p.DNSRegex).Debug("")
 
+	// Start the proxy
 	if err = p.Run(); err != nil {
-		proxy.Log.WithError(err).Fatal("proxy server failed")
+		log.WithError(err).Fatal("proxy server failed")
 	}
 }
 

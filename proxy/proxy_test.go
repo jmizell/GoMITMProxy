@@ -44,8 +44,8 @@ func TestProxy_Run(t *testing.T) {
 			return proxyHandler
 		},
 		ListenAddr: "localhost",
-		HTTPPorts: []int{0},
-		HTTPSPorts: []int{0},
+		HTTPPorts:  []int{0, 0},
+		HTTPSPorts: []int{0, 0},
 	}
 
 	go func() {
@@ -58,81 +58,84 @@ func TestProxy_Run(t *testing.T) {
 	}()
 	time.Sleep(time.Millisecond * 500)
 
-	if len(proxy.HTTPSPorts) == 0 {
+	if len(proxy.HTTPSPorts) != 2 {
 		t.Fatalf("https port was not set")
 	}
 
-	if len(proxy.HTTPPorts) == 0 {
+	if len(proxy.HTTPPorts) != 2 {
 		t.Fatalf("http port was not set")
 	}
 
-	resp, err := http.Get(fmt.Sprintf("http://localhost:%d", proxy.HTTPPorts[0]))
-	if err != nil {
-		t.Fatalf("failed to make a http connection to test proxy, %s", err.Error())
+	for _, proxyPort := range proxy.HTTPPorts {
+		resp, err := http.Get(fmt.Sprintf("http://localhost:%d", proxyPort))
+		if err != nil {
+			t.Fatalf("failed to make a http connection to test proxy, %s", err.Error())
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected response code %d, but received %d", http.StatusOK, resp.StatusCode)
+		}
+
+		respBody, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("response body read returned error, %s", err.Error())
+		}
+		if string(respBody) != "okay" {
+			t.Fatalf("expected response body to contain \"okay\", but received %s", string(respBody))
+		}
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected response code %d, but received %d", http.StatusOK, resp.StatusCode)
-	}
-
-	respBody, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("response body read returned error, %s", err.Error())
-	}
-	if string(respBody) != "okay" {
-		t.Fatalf("expected response body to contain \"okay\", but received %s", string(respBody))
-	}
-
-
-	rootCAs := x509.NewCertPool()
-	rootCAs.AddCert(proxy.certs.caCert)
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig:  &tls.Config{
-				RootCAs: rootCAs,
+	for _, proxyPort := range proxy.HTTPSPorts {
+		rootCAs := x509.NewCertPool()
+		rootCAs.AddCert(proxy.Certs.caCert)
+		client := &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					RootCAs: rootCAs,
+				},
 			},
-		},
-		Timeout:   time.Second * 10,
-	}
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("https://localhost:%d", proxy.HTTPSPorts[0]), nil)
-	if err != nil {
-		t.Fatalf("failed to create http request, %s", err.Error())
-	}
+			Timeout: time.Second * 10,
+		}
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("https://localhost:%d", proxyPort), nil)
+		if err != nil {
+			t.Fatalf("failed to create http request, %s", err.Error())
+		}
 
-	resp, err = client.Do(req)
-	if err != nil {
-		t.Fatalf("failed to make a tls connection to test proxy, %s", err.Error())
-	}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to make a tls connection to test proxy, %s", err.Error())
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected response code %d, but received %d", http.StatusOK, resp.StatusCode)
-	}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected response code %d, but received %d", http.StatusOK, resp.StatusCode)
+		}
 
-	respBody, err = ioutil.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("response body read returned error, %s", err.Error())
-	}
-	if string(respBody) != "okay" {
-		t.Fatalf("expected response body to contain \"okay\", but received %s", string(respBody))
-	}
+		respBody, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("response body read returned error, %s", err.Error())
+		}
+		if string(respBody) != "okay" {
+			t.Fatalf("expected response body to contain \"okay\", but received %s", string(respBody))
+		}
 
-	var foundValidCert bool
-	for _, chain := range resp.TLS.VerifiedChains {
-		for _, cert := range chain {
-			if !cert.IsCA {
-				for _, domain := range cert.DNSNames {
-					if domain == "localhost" {
-						foundValidCert = true
+		var foundValidCert bool
+		for _, chain := range resp.TLS.VerifiedChains {
+			for _, cert := range chain {
+				if !cert.IsCA {
+					for _, domain := range cert.DNSNames {
+						if domain == "localhost" {
+							foundValidCert = true
+						}
 					}
-				}
-				if time.Now().After(cert.NotAfter) {
-					t.Fatalf("returned cert expired %s", cert.NotAfter.Local().String())
+					if time.Now().After(cert.NotAfter) {
+						t.Fatalf("returned cert expired %s", cert.NotAfter.Local().String())
+					}
 				}
 			}
 		}
-	}
-	if !foundValidCert {
-		t.Fatal("no returned certificate contained a valid domain")
+		if !foundValidCert {
+			t.Fatal("no returned certificate contained a valid domain")
+		}
 	}
 }
 
