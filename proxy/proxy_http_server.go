@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+
+	"github.com/jmizell/GoMITMProxy/proxy/log"
 )
 
 type HTTPProxyServer struct {
@@ -16,7 +18,7 @@ type HTTPProxyServer struct {
 	port       int
 }
 
-func (p *HTTPProxyServer) Serve(ready chan bool, handler http.Handler) error {
+func (p *HTTPProxyServer) ListenAndServe(ready chan bool, handler http.Handler) error {
 
 	p.server = &http.Server{}
 
@@ -33,7 +35,7 @@ func (p *HTTPProxyServer) Serve(ready chan bool, handler http.Handler) error {
 
 	p.port = connection.Addr().(*net.TCPAddr).Port
 	ip := connection.Addr().(*net.TCPAddr).IP
-	Log.WithField("addr", fmt.Sprintf("%s:%d", ip, p.port)).
+	log.WithField("addr", fmt.Sprintf("%s:%d", ip, p.port)).
 		Info("http server started")
 
 	ready <- true

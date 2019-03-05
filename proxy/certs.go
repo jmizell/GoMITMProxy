@@ -15,6 +15,8 @@ import (
 	"math/big"
 	"sync"
 	"time"
+
+	"github.com/jmizell/GoMITMProxy/proxy/log"
 )
 
 const CertOrg = "GoMITMProxy"
@@ -181,7 +183,7 @@ func genSerial() *big.Int {
 
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
-		Log.WithError(err).WithExitCode(GenCertFatal).Fatal("generate serial")
+		log.WithError(err).WithExitCode(GenCertFatal).Fatal("generate serial")
 	}
 
 	return serialNumber
@@ -199,14 +201,14 @@ func WriteCA(certFileName, keyFileName string, cert *x509.Certificate, key *rsa.
 	if err != nil {
 		return err
 	}
-	Log.WithField("key_file", keyFileName).Info("wrote certificate authority key")
+	log.WithField("key_file", keyFileName).Info("wrote certificate authority key")
 
 	certBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
 	err = ioutil.WriteFile(certFileName, certBytes, 0600)
 	if err != nil {
 		return err
 	}
-	Log.WithField("cert_file", certFileName).Info("wrote certificate authority certificate")
+	log.WithField("cert_file", certFileName).Info("wrote certificate authority certificate")
 
 	return nil
 }

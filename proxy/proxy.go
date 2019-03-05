@@ -12,28 +12,28 @@ import (
 	"time"
 
 	"github.com/benburkert/dns"
+
+	"github.com/jmizell/GoMITMProxy/proxy/log"
 )
 
-const HTTPServerFatal = 129
-const TLSServerFatal = 130
+const ProxyServerFatal = 129
 const DNSServerFatal = 132
 
-var defaultProxyHandler = func(url *url.URL) http.Handler {
+var DefaultProxyHandler = func(url *url.URL) http.Handler {
 	return httputil.NewSingleHostReverseProxy(url)
 }
 
 type proxyServer interface {
-	Serve(chan bool, http.Handler) error
+	ListenAndServe(chan bool, http.Handler) error
 	GetPort() int
 	Shutdown() error
 }
 
 type Proxy struct {
-	tlsServers   []proxyServer
-	httpServers  []proxyServer
+	servers      []proxyServer
 	serverErrors chan error
-	certs        *Certs
 
+	Certs      *Certs `json:"-"`
 	ListenAddr string `json:"listen_addr"`
 	HTTPSPorts []int  `json:"https_ports"`
 	HTTPPorts  []int  `json:"http_ports"`
@@ -47,20 +47,19 @@ type Proxy struct {
 }
 
 func (p *Proxy) Run() (err error) {
-	defer Log.Close()
 
 	p.serverErrors = make(chan error, len(p.HTTPSPorts)+len(p.HTTPPorts))
 
-	if p.certs == nil {
-		p.certs = &Certs{}
+	if p.Certs == nil {
+		p.Certs = &Certs{}
 		if p.CACertFile == "" || p.CAKeyFile == "" {
-			p.certs.caKey, p.certs.caCert, err = p.certs.GenerateCAPair()
+			p.Certs.caKey, p.Certs.caCert, err = p.Certs.GenerateCAPair()
 			if err != nil {
 				return err
 			}
-			err = WriteCA(p.CACertFile, p.CAKeyFile, p.certs.caCert, p.certs.caKey)
+			err = WriteCA(p.CACertFile, p.CAKeyFile, p.Certs.caCert, p.Certs.caKey)
 		} else {
-			err = p.certs.LoadCAPair(p.CAKeyFile, p.CACertFile)
+			err = p.Certs.LoadCAPair(p.CAKeyFile, p.CACertFile)
 		}
 
 		if err != nil {
@@ -83,27 +82,23 @@ func (p *Proxy) Run() (err error) {
 	}
 
 	if p.DNSPort > 0 {
-		go p.serveDNS()
+		go p.runDNSServer()
 	}
 
-	if err := p.runHTTPServers(); err != nil {
-		Log.WithError(err).WithExitCode(HTTPServerFatal).Fatal("http server failed")
-	}
-
-	if err := p.runTLSServers(); err != nil {
-		Log.WithError(err).WithExitCode(TLSServerFatal).Fatal("https server failed")
+	if err := p.runProxyServers(); err != nil {
+		log.WithError(err).WithExitCode(ProxyServerFatal).Fatal("proxy server start failed")
 	}
 
 	err = <-p.serverErrors
 	if err != http.ErrServerClosed && err != nil {
-		Log.WithError(err).Fatal("server exited with unexpected error")
+		log.WithError(err).Fatal("server exited with unexpected error")
 		return p.Shutdown()
 	}
 
 	return nil
 }
 
-func (p *Proxy) serveDNS() {
+func (p *Proxy) runDNSServer() {
 
 	dnsServer := DNSServer{
 		ListenAddr: p.ListenAddr,
@@ -113,80 +108,94 @@ func (p *Proxy) serveDNS() {
 	}
 
 	if err := dnsServer.ListenAndServe(); err != nil {
-		Log.WithError(err).WithExitCode(DNSServerFatal).Fatal("dns server failed")
+		log.WithError(err).WithExitCode(DNSServerFatal).Fatal("dns server failed")
 	}
 }
 
-func (p *Proxy) runTLSServers() error {
+func (p *Proxy) runProxyServers() error {
 
-	var ports []int
+	var httpsPorts []int
 	for _, port := range p.HTTPSPorts {
 
-		ready := make(chan bool, 1)
-		srv := &TLSProxyServer{
-			listenAddr: p.ListenAddr,
-			port:       port,
-			certs:      p.certs,
+		srv, err := p.runTLSServer(port)
+		if err != nil {
+			return err
 		}
 
-		go func() {
-			p.serverErrors <- srv.Serve(ready, p)
-		}()
-
-		select {
-		case <-ready:
-		case <-time.After(1 * time.Second):
-			return fmt.Errorf("timed out waiting for tls server %s:%d to be ready", p.ListenAddr, port)
-		}
-
-		ports = append(ports, srv.GetPort())
-		p.tlsServers = append(p.tlsServers, srv)
+		httpsPorts = append(httpsPorts, srv.GetPort())
+		p.servers = append(p.servers, srv)
 	}
-	p.HTTPSPorts = ports
+	p.HTTPSPorts = httpsPorts
+
+	var httpPorts []int
+	for _, port := range p.HTTPPorts {
+
+		srv, err := p.runHTTPServer(port)
+		if err != nil {
+			return err
+		}
+
+		httpPorts = append(httpPorts, srv.GetPort())
+		p.servers = append(p.servers, srv)
+	}
+	p.HTTPPorts = httpPorts
 
 	return nil
 }
 
-func (p *Proxy) runHTTPServers() error {
+func (p *Proxy) runTLSServer(port int) (*TLSProxyServer, error) {
 
-	var ports []int
-	for _, port := range p.HTTPPorts {
-
-		ready := make(chan bool, 1)
-		srv := &HTTPProxyServer{
-			listenAddr: p.ListenAddr,
-			port:       port,
-		}
-
-		go func() {
-			p.serverErrors <- srv.Serve(ready, p)
-		}()
-
-		select {
-		case <-ready:
-		case <-time.After(1 * time.Second):
-			return fmt.Errorf("timed out waiting for http server %s:%d to be ready", p.ListenAddr, port)
-		}
-
-		ports = append(ports, srv.GetPort())
-		p.httpServers = append(p.httpServers, srv)
+	ready := make(chan bool, 1)
+	srv := &TLSProxyServer{
+		listenAddr: p.ListenAddr,
+		port:       port,
+		certs:      p.Certs,
 	}
-	p.HTTPPorts = ports
 
-	return nil
+	go func() {
+		p.serverErrors <- srv.ListenAndServe(ready, p)
+	}()
+
+	select {
+	case <-ready:
+	case <-time.After(1 * time.Second):
+		return nil, fmt.Errorf("timed out waiting for tls server %s:%d to be ready", p.ListenAddr, srv.GetPort())
+	}
+
+	return srv, nil
+}
+
+func (p *Proxy) runHTTPServer(port int) (*HTTPProxyServer, error) {
+
+	ready := make(chan bool, 1)
+	srv := &HTTPProxyServer{
+		listenAddr: p.ListenAddr,
+		port:       port,
+	}
+
+	go func() {
+		p.serverErrors <- srv.ListenAndServe(ready, p)
+	}()
+
+	select {
+	case <-ready:
+	case <-time.After(1 * time.Second):
+		return nil, fmt.Errorf("timed out waiting for http server %s:%d to be ready", p.ListenAddr, srv.GetPort())
+	}
+
+	return srv, nil
 }
 
 func (p *Proxy) Shutdown() (err error) {
 
-	servers := append(p.httpServers, p.tlsServers...)
-	done := make(chan error, len(servers))
-	for _, srv := range servers {
+	done := make(chan error, len(p.servers))
+	for _, srv := range p.servers {
 		go func(s proxyServer) {
 			done <- s.Shutdown()
 		}(srv)
 	}
 
-	for i := 0; i <= len(servers); i++ {
+	for i := 0; i <= len(p.servers); i++ {
 		select {
 		case err := <-done:
 			if err != http.ErrServerClosed && err != nil {
@@ -203,7 +212,7 @@ func (p *Proxy) Shutdown() (err error) {
 func (p *Proxy) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 
 	if p.newProxy == nil {
-		p.newProxy = defaultProxyHandler
+		p.newProxy = DefaultProxyHandler
 	}
 
 	req.URL.Host = req.Host
@@ -213,5 +222,5 @@ func (p *Proxy) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	p.newProxy(req.URL).ServeHTTP(resp, req)
-	Log.WithRequest(req).Info("")
+	log.WithRequest(req).Info("")
 }

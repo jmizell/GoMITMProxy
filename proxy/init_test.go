@@ -3,6 +3,8 @@
 
 package proxy
 
+import "github.com/jmizell/GoMITMProxy/proxy/log"
+
 func init() {
-	Log.Level = LogWARNING
+	log.DefaultLogger.Level = log.WARNING
 }
