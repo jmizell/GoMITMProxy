@@ -18,22 +18,30 @@ import (
 	"github.com/jmizell/GoMITMProxy/proxy/log"
 )
 
+const Version = "0.0.2"
+
 func main() {
+
+	// Get a default proxy server
+	p := proxy.NewProxyWithDefaults()
+
+	// parse some flags
 	genCAOnly := flag.Bool("generate_ca_only", false, "generate a certificate authority, and exit")
 	KeyAge := flag.Int("key_age_hours", 0, "certificate authority expire time in hours, used only with generate_ca_only")
-	CAKeyFile := flag.String("ca_key_file", "", "path to certificate authority key file")
-	CACertFile := flag.String("ca_cert_file", "", "path to certificate authority cert file")
-	ListenAddr := flag.String("listen_addr", "127.0.0.1", "network address bind to")
-	HTTPSPorts := flag.String("https_ports", "0", "ports to listen for https requests")
-	HTTPPorts := flag.String("http_ports", "0", "ports to listen for http requests")
-	DNSPort := flag.Int("dns_port", 0, "port to listen for dns requests")
-	DNSServer := flag.String("dns_server", "", "use the supplied dns resolver, instead of system defaults")
-	DNSRegex := flag.String("dns_regex", "", "domains matching this regex pattern will return the proxy address")
+	CAKeyFile := flag.String("ca_key_file", p.CAKeyFile, "path to certificate authority key file")
+	CACertFile := flag.String("ca_cert_file", p.CACertFile, "path to certificate authority cert file")
+	ListenAddr := flag.String("listen_addr", p.ListenAddr, "network address bind to")
+	HTTPSPorts := flag.String("https_ports", intsToString(p.HTTPSPorts), "ports to listen for https requests")
+	HTTPPorts := flag.String("http_ports", intsToString(p.HTTPPorts), "ports to listen for http requests")
+	DNSPort := flag.Int("dns_port", p.DNSPort, "port to listen for dns requests")
+	DNSServer := flag.String("dns_server", p.DNSServer, "use the supplied dns resolver, instead of system defaults")
+	DNSRegex := flag.String("dns_regex", p.DNSRegex, "domains matching this regex pattern will return the proxy address")
 	config := flag.String("config", "", "proxy config file path")
 	requestLogFile := flag.String("request_log_file", "", "file to log http requests")
 	logJSON := flag.Bool("json", false, "output json log format to standard out")
 	logDebug := flag.Bool("debug", false, "enable debug logging")
-	logLevel := flag.String("log_level", log.INFO.String(), "set logging to log level")
+	logLevel := flag.String("log_level", log.DefaultLogger.Level.String(), "set logging to log level")
+	version := flag.Bool("version", false, "output version")
 	flag.Usage = func() {
 		path.Base(os.Args[0])
 		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options]\n\n", path.Base(os.Args[0]))
@@ -41,26 +49,17 @@ func main() {
 	}
 	flag.Parse()
 
-	// Generate certificate authority only, and exit
-	if *genCAOnly {
-		c := proxy.Certs{
-			KeyAge: time.Duration(*KeyAge) * time.Hour,
-		}
-		key, cert, err := c.GenerateCAPair()
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-
-		err = proxy.WriteCA(*CACertFile, *CAKeyFile, cert, key)
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-
+	if *version {
+		fmt.Println("Version ", Version)
 		os.Exit(0)
 	}
 
+	// Generate certificate authority only, and exit
+	if *genCAOnly {
+		GenerateCA(*KeyAge, *CACertFile, *CAKeyFile)
+	}
+
 	// Parse config file to values
-	p := proxy.Proxy{}
 	logConfig := log.NewDefaultConfig()
 	if *config != "" {
 
@@ -82,23 +81,36 @@ func main() {
 
 	// Setting proxy command line arguments, values supersede config values
 	var err error
-	p.HTTPSPorts, err = listToInts(*HTTPSPorts, ",")
-	if err != nil {
-		log.WithError(err).WithField("https_ports", *HTTPSPorts).Fatal("flag parse failure")
-	}
-	p.HTTPPorts, err = listToInts(*HTTPPorts, ",")
-	if err != nil {
-		log.WithError(err).WithField("http_ports", *HTTPPorts).Fatal("flag parse failure")
-	}
-	p.CAKeyFile = *CAKeyFile
-	p.CACertFile = *CACertFile
-	p.ListenAddr = *ListenAddr
-	p.DNSServer = *DNSServer
-	p.DNSPort = *DNSPort
-	p.DNSRegex = *DNSRegex
+	flag.Visit(func(i *flag.Flag) {
+		switch i.Name {
+		case "ca_key_file":
+			p.CAKeyFile = *CAKeyFile
+		case "ca_cert_file":
+			p.CACertFile = *CACertFile
+		case "listen_addr":
+			p.ListenAddr = *ListenAddr
+		case "https_ports":
+			p.HTTPSPorts, err = listToInts(*HTTPSPorts, ",")
+			if err != nil {
+				log.WithError(err).WithField("https_ports", *HTTPSPorts).Fatal("flag parse failure")
+			}
+		case "http_ports":
+			p.HTTPPorts, err = listToInts(*HTTPPorts, ",")
+			if err != nil {
+				log.WithError(err).WithField("http_ports", *HTTPPorts).Fatal("flag parse failure")
+			}
+		case "dns_port":
+			p.DNSPort = *DNSPort
+		case "dns_server":
+			p.DNSServer = *DNSServer
+		case "dns_regex":
+			p.DNSRegex = *DNSRegex
+		case "log_level":
+			logConfig.Level.Parse(*logLevel)
+		}
+	})
 
 	// Setting logger command line arguments, values supersede config values
-	logConfig.Level.Parse(*logLevel)
 	if *logJSON {
 		logConfig.Format = log.JSON
 	}
@@ -111,7 +123,7 @@ func main() {
 	logger, requestWriter := logConfig.GetLogger()
 	log.DefaultLogger = logger
 	if requestWriter != nil {
-		defer requestWriter.Close()
+		defer func() { _ = requestWriter.Close() }()
 	}
 
 	// Output config values for debugging
@@ -133,6 +145,24 @@ func main() {
 	}
 }
 
+func GenerateCA(KeyAge int, CACertFile, CAKeyFile string) {
+
+	c := proxy.Certs{
+		KeyAge: time.Duration(KeyAge) * time.Hour,
+	}
+	key, cert, err := c.GenerateCAPair()
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	err = proxy.WriteCA(CACertFile, CAKeyFile, cert, key)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	os.Exit(0)
+}
+
 func listToInts(s, sep string) (ints []int, err error) {
 
 	for _, v := range strings.Split(s, sep) {
@@ -146,4 +176,14 @@ func listToInts(s, sep string) (ints []int, err error) {
 	}
 
 	return ints, nil
+}
+
+func intsToString(ints []int) (intString string) {
+
+	strInts := make([]string, len(ints))
+	for _, i := range ints {
+		strInts = append(strInts, fmt.Sprintf("%d", i))
+	}
+
+	return strings.Join(strInts, ",")
 }

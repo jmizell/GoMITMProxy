@@ -1,11 +1,13 @@
-FROM golang:1.12.0-stretch
+# BUILD STEP
+FROM golang:1.12.0-stretch AS builder
 RUN mkdir -p /root/gomitmproxy
 WORKDIR /root/gomitmproxy
 COPY . /root/gomitmproxy/
-RUN make
+RUN make build
 
+# BUILDING APP
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 WORKDIR /root/
-COPY --from=0 /root/gomitmproxy/gomitmproxy /root/gomitmproxy
-CMD ["/root/gomitmproxy"]
+COPY --from=builder /root/gomitmproxy/gomitmproxy /root/gomitmproxy
+ENTRYPOINT ["/root/gomitmproxy"]

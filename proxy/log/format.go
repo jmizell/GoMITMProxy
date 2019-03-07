@@ -3,33 +3,56 @@
 
 package log
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
 
 type Format uint8
 
 const (
+	TEXT Format = 0
 	JSON Format = 1 << iota
-	TEXT
 )
 
-func (l Format) String() string {
+func (f *Format) Parse(level string) {
 
-	switch l {
-	case JSON:
-		return "json"
+	level = strings.ToUpper(level)
+
+	switch level {
+	case "JSON":
+		*f = JSON
+	case "TEXT":
+		*f = TEXT
 	default:
-		return "text"
+		*f = TEXT
 	}
 }
 
-func (l *Format) Parse(level string) {
+func (f Format) String() string {
 
-	level = strings.ToLower(level)
-
-	switch level {
-	case "json":
-		*l = JSON
+	switch f {
+	case JSON:
+		return "JSON"
+	case TEXT:
+		return "TEXT"
 	default:
-		*l = TEXT
+		return "TEXT"
 	}
+}
+
+func (f *Format) UnmarshalJSON(data []byte) error {
+
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	f.Parse(s)
+
+	return nil
+}
+
+func (f *Format) MarshalJSON() ([]byte, error) {
+
+	return json.Marshal(f.String())
 }

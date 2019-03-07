@@ -5,7 +5,7 @@ package log
 
 import "net/http"
 
-var DefaultLogger = NewHandler(INFO)
+var DefaultLogger, _ = NewDefaultConfig().GetLogger()
 
 func WithExitCode(exitCode int) *MSG {
 

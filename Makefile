@@ -1,5 +1,6 @@
 SHELL  := /bin/bash
 GOPATH :=
+BUILDID := $(shell if [ "${TRAVIS_JOB_NUMBER}" == "" ]; then echo 0; else echo ${TRAVIS_JOB_NUMBER}; fi)
 
 all: test gomitmproxy
 
@@ -10,7 +11,15 @@ gomitmproxy:
 		-a \
 		-installsuffix cgo \
 		-o gomitmproxy \
-		github.com/jmizell/GoMITMProxy/cmd/gomitmproxy
+		cmd/gomitmproxy/gomitmproxy.go
+
+docker: docker_app docker_selenium
+
+docker_app:
+	docker build --no-cache --force-rm -t jmizell/gomitmproxy:test-app-$(BUILDID) -f Dockerfile .
+
+docker_selenium:
+	docker build --no-cache --force-rm -t jmizell/gomitmproxy:test-selenium-$(BUILDID) -f selenium/DockerfileChrome .
 
 test:
 	go test -cover -coverprofile=cover.out -v -timeout=15m ./... \
