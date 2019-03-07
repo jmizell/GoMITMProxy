@@ -1,0 +1,13 @@
+{
+  "log_level": "debug",
+  "log_format": "text",
+  "request_log_file": "/var/log/gomitmproxy.log",
+  "listen_addr": "127.0.0.50",
+  "http_ports": [80, 8080, 8880, 2052, 2082, 2086, 2095],
+  "https_ports": [443, 2053, 2083, 2087, 2096, 8443],
+  "ca_key_file": "/etc/gomitmproxy/ca.key",
+  "ca_cert_file": "/etc/gomitmproxy/ca.crt",
+  "dns_port": 53,
+  "dns_server": "8.8.8.8",
+  "dns_regex": ".*"
+}

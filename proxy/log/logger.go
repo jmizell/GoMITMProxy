@@ -9,20 +9,35 @@ import (
 	"os"
 )
 
-type Handler struct {
+type Handler interface {
+	SetWriter(Writer)
+	AddWriter(Writer)
+	Write(*MSG)
+	WithExitCode(int) *MSG
+	WithError(error) *MSG
+	WithField(string, interface{}) *MSG
+	WithRequest(*http.Request) *MSG
+	Info(string, ...interface{})
+	Debug(string, ...interface{})
+	Fatal(string, ...interface{})
+	Warning(string, ...interface{})
+	Error(string, ...interface{})
+}
+
+type DefaultHandler struct {
 	Writers []Writer `json:"-"`
 	Level   Level    `json:"log_level"`
 }
 
-func NewHandler(level Level) *Handler {
-	return &Handler{Level: level}
+func NewHandler(level Level) *DefaultHandler {
+	return &DefaultHandler{Level: level}
 }
 
-func (l *Handler) SetWriter(w Writer) {
+func (l *DefaultHandler) SetWriter(w Writer) {
 	l.Writers = []Writer{w}
 }
 
-func (l *Handler) AddWriter(w Writer) {
+func (l *DefaultHandler) AddWriter(w Writer) {
 
 	if l.Writers == nil {
 		l.Writers = []Writer{}
@@ -31,7 +46,7 @@ func (l *Handler) AddWriter(w Writer) {
 	l.Writers = append(l.Writers, w)
 }
 
-func (l *Handler) Write(msg *MSG) {
+func (l *DefaultHandler) Write(msg *MSG) {
 
 	if l.Writers == nil {
 		l.Writers = []Writer{&TextWriter{}}
@@ -57,55 +72,52 @@ func (l *Handler) Write(msg *MSG) {
 	}
 }
 
-func (l *Handler) NewMSG() *MSG {
+func (l *DefaultHandler) NewMSG() *MSG {
 
-	return &MSG{
-		logger: l,
-		Fields: map[string]interface{}{},
-	}
+	return NewMSG(l)
 }
 
-func (l *Handler) WithExitCode(exitCode int) *MSG {
+func (l *DefaultHandler) WithExitCode(exitCode int) *MSG {
 
 	return l.NewMSG().WithExitCode(exitCode)
 }
 
-func (l *Handler) WithError(err error) *MSG {
+func (l *DefaultHandler) WithError(err error) *MSG {
 
 	return l.NewMSG().WithError(err)
 }
 
-func (l *Handler) WithField(key string, value interface{}) *MSG {
+func (l *DefaultHandler) WithField(key string, value interface{}) *MSG {
 
 	return l.NewMSG().WithField(key, value)
 }
 
-func (l *Handler) WithRequest(req *http.Request) *MSG {
+func (l *DefaultHandler) WithRequest(req *http.Request) *MSG {
 
 	return l.NewMSG().WithRequest(req)
 }
 
-func (l *Handler) Info(format string, a ...interface{}) {
+func (l *DefaultHandler) Info(format string, a ...interface{}) {
 
 	l.NewMSG().Info(format, a...)
 }
 
-func (l *Handler) Debug(format string, a ...interface{}) {
+func (l *DefaultHandler) Debug(format string, a ...interface{}) {
 
 	l.NewMSG().Debug(format, a...)
 }
 
-func (l *Handler) Fatal(format string, a ...interface{}) {
+func (l *DefaultHandler) Fatal(format string, a ...interface{}) {
 
 	l.NewMSG().Fatal(format, a...)
 }
 
-func (l *Handler) Warning(format string, a ...interface{}) {
+func (l *DefaultHandler) Warning(format string, a ...interface{}) {
 
 	l.NewMSG().Warning(format, a...)
 }
 
-func (l *Handler) Error(format string, a ...interface{}) {
+func (l *DefaultHandler) Error(format string, a ...interface{}) {
 
 	l.NewMSG().Error(format, a...)
 }

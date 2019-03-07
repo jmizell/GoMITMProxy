@@ -4,7 +4,6 @@
 package proxy
 
 import (
-	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -16,8 +15,12 @@ import (
 	"github.com/jmizell/GoMITMProxy/proxy/log"
 )
 
-const ProxyServerFatal = 129
-const DNSServerFatal = 132
+const EXITCODEProxyServer = 129
+const EXITCODEDNSServer = 132
+
+const ERRTLSProxyStart = ErrorStr("tls proxy server failed to start")
+const ERRHTTPProxyStart = ErrorStr("http proxy server failed to start")
+const ERRProxyShutdown = ErrorStr("proxy shutdown failed")
 
 var DefaultProxyHandler = func(url *url.URL) http.Handler {
 	return httputil.NewSingleHostReverseProxy(url)
@@ -44,6 +47,19 @@ type Proxy struct {
 	DNSRegex   string `json:"dns_regex"`
 
 	newProxy func(*url.URL) http.Handler
+}
+
+func NewProxyWithDefaults() *Proxy {
+	return &Proxy{
+		CAKeyFile:  "",
+		CACertFile: "",
+		ListenAddr: "127.0.0.1",
+		DNSServer:  "",
+		DNSPort:    0,
+		DNSRegex:   "",
+		HTTPSPorts: []int{0},
+		HTTPPorts:  []int{0},
+	}
 }
 
 func (p *Proxy) Run() (err error) {
@@ -86,7 +102,7 @@ func (p *Proxy) Run() (err error) {
 	}
 
 	if err := p.runProxyServers(); err != nil {
-		log.WithError(err).WithExitCode(ProxyServerFatal).Fatal("proxy server start failed")
+		log.WithError(err).WithExitCode(EXITCODEProxyServer).Fatal("proxy server start failed")
 	}
 
 	err = <-p.serverErrors
@@ -108,7 +124,7 @@ func (p *Proxy) runDNSServer() {
 	}
 
 	if err := dnsServer.ListenAndServe(); err != nil {
-		log.WithError(err).WithExitCode(DNSServerFatal).Fatal("dns server failed")
+		log.WithError(err).WithExitCode(EXITCODEDNSServer).Fatal("dns server failed")
 	}
 }
 
@@ -159,7 +175,7 @@ func (p *Proxy) runTLSServer(port int) (*TLSProxyServer, error) {
 	select {
 	case <-ready:
 	case <-time.After(1 * time.Second):
-		return nil, fmt.Errorf("timed out waiting for tls server %s:%d to be ready", p.ListenAddr, srv.GetPort())
+		return nil, ERRTLSProxyStart.Err().WithReason("timed out waiting %s:%d to be ready", p.ListenAddr, srv.GetPort())
 	}
 
 	return srv, nil
@@ -180,7 +196,7 @@ func (p *Proxy) runHTTPServer(port int) (*HTTPProxyServer, error) {
 	select {
 	case <-ready:
 	case <-time.After(1 * time.Second):
-		return nil, fmt.Errorf("timed out waiting for http server %s:%d to be ready", p.ListenAddr, srv.GetPort())
+		return nil, ERRHTTPProxyStart.Err().WithReason("timed out waiting %s:%d to be ready", p.ListenAddr, srv.GetPort())
 	}
 
 	return srv, nil
@@ -202,7 +218,7 @@ func (p *Proxy) Shutdown() (err error) {
 				return err
 			}
 		case <-time.After(time.Second * 10):
-			return fmt.Errorf("timed out waiting for server to shutdown")
+			return ERRProxyShutdown.Err().WithReason("timeout")
 		}
 	}
 
@@ -221,6 +237,6 @@ func (p *Proxy) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		req.URL.Scheme = "https"
 	}
 
-	p.newProxy(req.URL).ServeHTTP(resp, req)
 	log.WithRequest(req).Info("")
+	p.newProxy(req.URL).ServeHTTP(resp, req)
 }

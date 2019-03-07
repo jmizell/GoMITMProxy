@@ -7,12 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
 
 type MSG struct {
-	logger   *Handler
+	logger   Handler
 	exitCode int
 
 	Timestamp    time.Time              `json:"timestamp"`
@@ -21,6 +22,14 @@ type MSG struct {
 	Request      *RequestRecord         `json:"request,omitempty"`
 	ErrorMessage string                 `json:"error,omitempty"`
 	Level        Level                  `json:"level"`
+}
+
+func NewMSG(l Handler) *MSG {
+
+	return &MSG{
+		logger: l,
+		Fields: map[string]interface{}{},
+	}
 }
 
 func (l *MSG) WithExitCode(exitCode int) *MSG {
@@ -106,11 +115,17 @@ func (l *MSG) String() (msg string) {
 		msg = fmt.Sprintf("%s err=\"%s\"", msg, strings.Replace(l.ErrorMessage, "\"", "\\\"", -1))
 	}
 
-	for key, value := range l.Fields {
+	var keys []string
+	for key := range l.Fields {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
 		msg = fmt.Sprintf("%s %s=\"%s\"",
 			msg,
 			strings.Replace(key, " ", "_", -1),
-			strings.Replace(fmt.Sprintf("%v", value), "\"", "\\\"", -1))
+			strings.Replace(fmt.Sprintf("%v", l.Fields[key]), "\"", "\\\"", -1))
 	}
 
 	return msg

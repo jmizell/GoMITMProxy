@@ -9,7 +9,7 @@ type Config struct {
 	RequestLogFile string `json:"request_log_file"`
 }
 
-func (c Config) GetLogger() (*Handler, *RequestWriter) {
+func (c Config) GetLogger() (*DefaultHandler, *RequestWriter) {
 
 	handler := NewHandler(c.Level)
 
@@ -30,8 +30,8 @@ func (c Config) GetLogger() (*Handler, *RequestWriter) {
 
 func NewDefaultConfig() *Config {
 	return &Config{
-		Level: INFO,
-		Format: TEXT,
+		Level:          INFO,
+		Format:         TEXT,
 		RequestLogFile: "",
 	}
 }

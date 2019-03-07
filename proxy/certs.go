@@ -23,10 +23,18 @@ const CertOrg = "GoMITMProxy"
 const KeyLength = 1024
 const DefaultKeyAge = time.Hour * 24
 
-const CertErrNoCA = "no certificate authority set"
-const CertErrLoadCA = "error loading ca"
+const ERRCertNoCA = ErrorStr("no certificate authority set")
+const ERRCertCARead = ErrorStr("read ca file failed")
+const ERRCertCAParse = ErrorStr("parse ca failed")
+const ERRCertCAExpired = ErrorStr("ca expired")
+const ERRCertGenCA = ErrorStr("generate ca failed")
+const ERRCertGenHostKey = ErrorStr("generate host key failed")
+const ERRCertWriteCA = ErrorStr("writing ca to disk failed")
+const ERRCertGenerateKey = ErrorStr("generate key failed")
+const ERRCertx509Create = ErrorStr("create x509 cert failed")
+const ERRCertx509Parse = ErrorStr("parse x509 cert failed")
 
-const GenCertFatal = 131
+const EXITCODECertFatal = 131
 
 type Certs struct {
 	certStore map[string]*tls.Certificate
@@ -66,26 +74,26 @@ func (c *Certs) LoadCAPair(keyFile, certFile string) error {
 
 	keyBytes, err := ioutil.ReadFile(keyFile)
 	if err != nil {
-		return fmt.Errorf("%s %s: %v", CertErrLoadCA, keyFile, err.Error())
+		return ERRCertCARead.Err().WithReason("%s - %s", keyFile, err.Error())
 	}
 
 	keyDecoded, _ := pem.Decode(keyBytes)
 	if c.caKey, err = x509.ParsePKCS1PrivateKey(keyDecoded.Bytes); err != nil {
-		return fmt.Errorf("%s key parse error: %v", CertErrLoadCA, err.Error())
+		return ERRCertCAParse.Err().WithReason("%s - %s", keyFile, err.Error())
 	}
 
 	certBytes, err := ioutil.ReadFile(certFile)
 	if err != nil {
-		return fmt.Errorf("%s %s: %v", CertErrLoadCA, certFile, err.Error())
+		return ERRCertCARead.Err().WithReason("%s - %s", certFile, err.Error())
 	}
 
 	certDecoded, _ := pem.Decode(certBytes)
 	if c.caCert, err = x509.ParseCertificate(certDecoded.Bytes); err != nil {
-		return fmt.Errorf("%s cert parse error: %v", CertErrLoadCA, err.Error())
+		return ERRCertCAParse.Err().WithReason("%s - %s", certFile, err.Error())
 	}
 
 	if c.caCert.NotAfter.Before(time.Now()) {
-		return fmt.Errorf("%s cert expired", CertErrLoadCA)
+		return ERRCertCAExpired.Err()
 	}
 
 	c.KeyAge = c.caCert.NotAfter.Sub(time.Now())
@@ -114,16 +122,16 @@ func (c *Certs) GenerateCAPair() (key *rsa.PrivateKey, cert *x509.Certificate, e
 
 	key, cert, err = genCerts(CACertTemplate, c.caCert, c.caKey, DefaultKeyAge)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, ERRCertGenCA.Err().WithError(err)
 	}
 
-	return key, cert, err
+	return key, cert, nil
 }
 
 func (c *Certs) GenerateHostKey(vhost string) (*tls.Certificate, error) {
 
 	if c.caKey == nil || c.caCert == nil {
-		return nil, fmt.Errorf(CertErrNoCA)
+		return nil, ERRCertNoCA.Err()
 	}
 
 	hostCertTemplate := &x509.Certificate{
@@ -141,12 +149,19 @@ func (c *Certs) GenerateHostKey(vhost string) (*tls.Certificate, error) {
 	}
 
 	key, cert, err := genCerts(hostCertTemplate, c.caCert, c.caKey, DefaultKeyAge)
+	if err != nil {
+		return nil, ERRCertGenHostKey.Err().WithError(err)
+	}
 
 	tlsCert, err := tls.X509KeyPair(
 		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}),
 		pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}),
 	)
-	return &tlsCert, err
+	if err != nil {
+		return nil, ERRCertGenHostKey.Err().WithError(err)
+	}
+
+	return &tlsCert, nil
 }
 
 func genCerts(certTemplate *x509.Certificate, signingCert *x509.Certificate, signingKey *rsa.PrivateKey, KeyAge time.Duration) (
@@ -158,7 +173,7 @@ func genCerts(certTemplate *x509.Certificate, signingCert *x509.Certificate, sig
 
 	key, err = rsa.GenerateKey(rand.Reader, KeyLength)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, ERRCertGenerateKey.Err().WithError(err)
 	}
 
 	if signingCert == nil || signingKey == nil {
@@ -168,12 +183,12 @@ func genCerts(certTemplate *x509.Certificate, signingCert *x509.Certificate, sig
 
 	signedCertBytes, err := x509.CreateCertificate(rand.Reader, certTemplate, signingCert, &key.PublicKey, signingKey)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, ERRCertx509Create.Err().WithError(err)
 	}
 
 	cert, err = x509.ParseCertificate(signedCertBytes)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, ERRCertx509Parse.Err().WithError(err)
 	}
 
 	return key, cert, err
@@ -183,13 +198,14 @@ func genSerial() *big.Int {
 
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
-		log.WithError(err).WithExitCode(GenCertFatal).Fatal("generate serial")
+		log.WithError(err).WithExitCode(EXITCODECertFatal).Fatal("generate serial")
 	}
 
 	return serialNumber
 }
 
 func WriteCA(certFileName, keyFileName string, cert *x509.Certificate, key *rsa.PrivateKey) error {
+
 	if certFileName == "" || keyFileName == "" {
 		startTime := time.Now().Unix()
 		certFileName = fmt.Sprintf("gomitmproxy_ca_%d.crt", startTime)
@@ -199,14 +215,14 @@ func WriteCA(certFileName, keyFileName string, cert *x509.Certificate, key *rsa.
 	keyBytes := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
 	err := ioutil.WriteFile(keyFileName, keyBytes, 0600)
 	if err != nil {
-		return err
+		return ERRCertWriteCA.Err().WithError(err)
 	}
 	log.WithField("key_file", keyFileName).Info("wrote certificate authority key")
 
 	certBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
 	err = ioutil.WriteFile(certFileName, certBytes, 0600)
 	if err != nil {
-		return err
+		return ERRCertWriteCA.Err().WithError(err)
 	}
 	log.WithField("cert_file", certFileName).Info("wrote certificate authority certificate")
 
