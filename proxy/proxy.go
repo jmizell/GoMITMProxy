@@ -6,8 +6,6 @@ package proxy
 import (
 	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"time"
 
 	"github.com/benburkert/dns"
@@ -15,42 +13,67 @@ import (
 	"github.com/jmizell/GoMITMProxy/proxy/log"
 )
 
+// Exit code returned when the proxy server fails
 const EXITCODEProxyServer = 129
+
+// Exit code returns when the dns server fails
 const EXITCODEDNSServer = 132
 
-const ERRTLSProxyStart = ErrorStr("tls proxy server failed to start")
-const ERRHTTPProxyStart = ErrorStr("http proxy server failed to start")
+// Error returned when https server fails to start
+const ERRTLSProxyStart = ErrorStr("https server failed to start")
+
+// Error returned when http server fails to start
+const ERRHTTPProxyStart = ErrorStr("http server failed to start")
+
+// Error returned when shutting down the http and https servers fails
 const ERRProxyShutdown = ErrorStr("proxy shutdown failed")
 
-var DefaultProxyHandler = func(url *url.URL) http.Handler {
-	return httputil.NewSingleHostReverseProxy(url)
-}
-
-type proxyServer interface {
+// server represents a tls or http server to be used in MITMProxy
+type Server interface {
 	ListenAndServe(chan bool, http.Handler) error
 	GetPort() int
 	Shutdown() error
 }
 
-type Proxy struct {
-	servers      []proxyServer
+// MITMProxy handles the creation of servers, and the transport of requests to their targets. A zero value is a no-op,
+// a valid config that starts servers is minimally at least one Port specification in HTTPSPorts, or HTTPPorts.
+type MITMProxy struct {
+	servers      []Server
 	serverErrors chan error
 
-	Certs      *Certs `json:"-"`
-	ListenAddr string `json:"listen_addr"`
-	HTTPSPorts []int  `json:"https_ports"`
-	HTTPPorts  []int  `json:"http_ports"`
-	CAKeyFile  string `json:"ca_key_file"`
-	CACertFile string `json:"ca_cert_file"`
-	DNSPort    int    `json:"dns_port"`
-	DNSServer  string `json:"dns_server"`
-	DNSRegex   string `json:"dns_regex"`
+	// LogResponses enabled logging the the response with the request.
+	LogResponses bool `json:"log_responses"`
 
-	newProxy func(*url.URL) http.Handler
+	// Certs is the store for the root CA, and all automatically generated host keys.
+	// Uninitialized a new Certs struct will be created either from the certificate files
+	// provided in CAKeyFile, and CACertFile, or if those are empty, new ones will be
+	// generated and written to disk.
+	Certs      *Certs `json:"-"`
+	CAKeyFile  string `json:"ca_key_file"`  // File path to the CA key file
+	CACertFile string `json:"ca_cert_file"` // File path to the CA certificate file
+
+	ListenAddr string `json:"listen_addr"` // TCP address to listen on
+	HTTPSPorts []int  `json:"https_ports"` // List of ports to start a tls server on
+	HTTPPorts  []int  `json:"http_ports"`  // List of ports to start http server on
+
+	DNSPort  int    `json:"dns_port"`  // Port to start listening for dns requests on, a zero value disables the server
+	DNSRegex string `json:"dns_regex"` // A regex pattern representing the vhosts to redirect to the proxy
+
+	// ForwardDNSServer overrides net.DefaultResolver with this dns server address.
+	// If the proxy is also serving dns, this value will be used for forwarded dns requests.
+	DNSServer string `json:"dns_server"` // Override net.DefaultResolver with this dns server address
+
+	// ProxyTransport is the http.Handler that receives requests, and performs the round trip.
+	// If this value is nil, then ReverseProxy is used.
+	//
+	// When a custom handler is set, logging will also need to be implemented, as LogResponses is not
+	// passed to the custom handler.
+	ProxyTransport http.Handler `json:"-"`
 }
 
-func NewProxyWithDefaults() *Proxy {
-	return &Proxy{
+// NewProxyWithDefaults returns a proxy with the default values used in gomitmproxy
+func NewProxyWithDefaults() *MITMProxy {
+	return &MITMProxy{
 		CAKeyFile:  "",
 		CACertFile: "",
 		ListenAddr: "127.0.0.1",
@@ -62,18 +85,29 @@ func NewProxyWithDefaults() *Proxy {
 	}
 }
 
-func (p *Proxy) Run() (err error) {
+// Run creates the certificate store if not present, starts the dns server if configured, updates the
+// net.DefaultResolver if ForwardDNSServer is set, and starts the tls and http servers. It blocks until the first
+// server error is received, or the servers exit.
+func (p *MITMProxy) Run() (err error) {
+
+	if p.ProxyTransport == nil {
+		p.ProxyTransport = &ReverseProxy{LogResponses: p.LogResponses}
+	}
+
+	if p.ListenAddr == "" {
+		p.ListenAddr = "127.0.0.1"
+	}
 
 	p.serverErrors = make(chan error, len(p.HTTPSPorts)+len(p.HTTPPorts))
 
 	if p.Certs == nil {
 		p.Certs = &Certs{}
 		if p.CACertFile == "" || p.CAKeyFile == "" {
-			p.Certs.caKey, p.Certs.caCert, err = p.Certs.GenerateCAPair()
+			_, _, err := p.Certs.GenerateCAPair()
 			if err != nil {
 				return err
 			}
-			err = WriteCA(p.CACertFile, p.CAKeyFile, p.Certs.caCert, p.Certs.caKey)
+			err = p.Certs.WriteCA(p.CACertFile, p.CAKeyFile)
 		} else {
 			err = p.Certs.LoadCAPair(p.CAKeyFile, p.CACertFile)
 		}
@@ -114,13 +148,13 @@ func (p *Proxy) Run() (err error) {
 	return nil
 }
 
-func (p *Proxy) runDNSServer() {
+func (p *MITMProxy) runDNSServer() {
 
 	dnsServer := DNSServer{
-		ListenAddr: p.ListenAddr,
-		DNSPort:    p.DNSPort,
-		DNSServer:  p.DNSServer,
-		DNSRegex:   p.DNSRegex,
+		ListenAddr:       p.ListenAddr,
+		Port:             p.DNSPort,
+		ForwardDNSServer: p.DNSServer,
+		DNSRegex:         p.DNSRegex,
 	}
 
 	if err := dnsServer.ListenAndServe(); err != nil {
@@ -128,7 +162,7 @@ func (p *Proxy) runDNSServer() {
 	}
 }
 
-func (p *Proxy) runProxyServers() error {
+func (p *MITMProxy) runProxyServers() error {
 
 	var httpsPorts []int
 	for _, port := range p.HTTPSPorts {
@@ -159,17 +193,17 @@ func (p *Proxy) runProxyServers() error {
 	return nil
 }
 
-func (p *Proxy) runTLSServer(port int) (*TLSProxyServer, error) {
+func (p *MITMProxy) runTLSServer(port int) (*TLSServer, error) {
 
 	ready := make(chan bool, 1)
-	srv := &TLSProxyServer{
-		listenAddr: p.ListenAddr,
-		port:       port,
-		certs:      p.Certs,
+	srv := &TLSServer{
+		ListenAddr: p.ListenAddr,
+		Port:       port,
+		Certs:      p.Certs,
 	}
 
 	go func() {
-		p.serverErrors <- srv.ListenAndServe(ready, p)
+		p.serverErrors <- srv.ListenAndServe(ready, p.ProxyTransport)
 	}()
 
 	select {
@@ -181,16 +215,16 @@ func (p *Proxy) runTLSServer(port int) (*TLSProxyServer, error) {
 	return srv, nil
 }
 
-func (p *Proxy) runHTTPServer(port int) (*HTTPProxyServer, error) {
+func (p *MITMProxy) runHTTPServer(port int) (*HTTPServer, error) {
 
 	ready := make(chan bool, 1)
-	srv := &HTTPProxyServer{
-		listenAddr: p.ListenAddr,
-		port:       port,
+	srv := &HTTPServer{
+		ListenAddr: p.ListenAddr,
+		Port:       port,
 	}
 
 	go func() {
-		p.serverErrors <- srv.ListenAndServe(ready, p)
+		p.serverErrors <- srv.ListenAndServe(ready, p.ProxyTransport)
 	}()
 
 	select {
@@ -202,11 +236,12 @@ func (p *Proxy) runHTTPServer(port int) (*HTTPProxyServer, error) {
 	return srv, nil
 }
 
-func (p *Proxy) Shutdown() (err error) {
+// Shutdown signals all servers to exit, and waits for them to return, or errors after a 10 second timeout.
+func (p *MITMProxy) Shutdown() (err error) {
 
 	done := make(chan error, len(p.servers))
 	for _, srv := range p.servers {
-		go func(s proxyServer) {
+		go func(s Server) {
 			done <- s.Shutdown()
 		}(srv)
 	}
@@ -223,20 +258,4 @@ func (p *Proxy) Shutdown() (err error) {
 	}
 
 	return nil
-}
-
-func (p *Proxy) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
-
-	if p.newProxy == nil {
-		p.newProxy = DefaultProxyHandler
-	}
-
-	req.URL.Host = req.Host
-	req.URL.Scheme = "http"
-	if req.TLS != nil {
-		req.URL.Scheme = "https"
-	}
-
-	log.WithRequest(req).Info("")
-	p.newProxy(req.URL).ServeHTTP(resp, req)
 }

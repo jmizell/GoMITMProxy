@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
+	"io"
 	"io/ioutil"
 	"mime/multipart"
 	"net/http"
@@ -16,24 +16,26 @@ import (
 )
 
 type RequestRecord struct {
-	Method           string              `json:"method"`
-	URL              *url.URL            `json:"url"`
-	Proto            string              `json:"proto"`
-	ProtoMajor       int                 `json:"proto_major"`
-	ProtoMinor       int                 `json:"proto_minor"`
-	Header           map[string][]string `json:"header"`
-	Body             string              `json:"body,omitempty"`
-	ContentLength    int64               `json:"content_length,omitempty"`
-	TransferEncoding []string            `json:"transfer_encoding,omitempty"`
-	Host             string              `json:"host"`
-	Form             url.Values          `json:"form,omitempty"`
-	PostForm         url.Values          `json:"post_form,omitempty"`
-	MultipartForm    *multipart.Form     `json:"multipart_form,omitempty"`
-	Trailer          map[string][]string `json:"trailer,omitempty"`
-	RemoteAddr       string              `json:"remote_addr"`
-	RequestURI       string              `json:"request_uri"`
-	TLS              bool                `json:"tls"`
-	TimeStamp        time.Time           `json:"time_stamp"`
+	Method           string
+	URL              *url.URL
+	Proto            string
+	ProtoMajor       int
+	ProtoMinor       int
+	Header           map[string][]string
+	Body             string
+	ContentLength    int64
+	TransferEncoding []string
+	Host             string
+	Form             url.Values
+	PostForm         url.Values
+	MultipartForm    *multipart.Form
+	Trailer          map[string][]string
+	RemoteAddr       string
+	RequestURI       string
+	TLS              bool
+	TimeStamp        time.Time
+
+	bodyBuffer *bytes.Buffer
 }
 
 func (r *RequestRecord) Load(req *http.Request) (err error) {
@@ -57,17 +59,29 @@ func (r *RequestRecord) Load(req *http.Request) (err error) {
 	r.RequestURI = req.RequestURI
 	r.TLS = req.TLS != nil
 
-	bodyBytes, err := ioutil.ReadAll(req.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read body, %s", err.Error())
-	}
-	r.Body = base64.StdEncoding.EncodeToString(bodyBytes)
-	req.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
+	r.bodyBuffer = bytes.NewBuffer(make([]byte, 0))
+	req.Body = ioutil.NopCloser(io.TeeReader(req.Body, r.bodyBuffer))
 
 	return nil
 }
 
-func (r *RequestRecord) MarshalIndent() []byte {
-	d, _ := json.MarshalIndent(r, "", "  ")
-	return d
+func (r *RequestRecord) ReadBody() error {
+
+	bodyBytes, err := ioutil.ReadAll(r.bodyBuffer)
+	if err != nil {
+		return err
+	}
+	r.Body = base64.StdEncoding.EncodeToString(bodyBytes)
+
+	return nil
+}
+
+func (r *RequestRecord) MarshalJSON() ([]byte, error) {
+	type RequestRecordAlias RequestRecord
+
+	if err := r.ReadBody(); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal((*RequestRecordAlias)(r))
 }

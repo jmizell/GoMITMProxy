@@ -5,20 +5,30 @@ package proxy
 
 import "fmt"
 
+// Error unable to cast go error to ProxyError
 const ERRCastErrorFailed = ErrorStr("cast to type proxy error failed")
 
+// ErrorStr is a string representation of ProxyError, to be used as a constant
 type ErrorStr string
 
-func (e ErrorStr) Err() *Error {
+// Err returns the ProxyError value of the string
+func (e ErrorStr) Err() *ProxyError {
 	return NewError(string(e))
 }
 
-type Error struct {
+// ProxyError is the custom error type for the proxy package. A ProxyError contains a type string, and an error value
+// describes the details of the specific error.
+//
+// A ProxyError returned as a normal error, can be easily cast back to a ProxyError with UnmarshalError.
+//
+// Types of ProxyErrors can be compared against each other using Match.
+type ProxyError struct {
 	errType string
 	error   error
 }
 
-func (e *Error) Error() string {
+// ProxyError fulfills the golang error type
+func (e *ProxyError) Error() string {
 
 	if e.error == nil {
 		return e.errType
@@ -27,13 +37,15 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("%s: %s", e.errType, e.error.Error())
 }
 
-func (e *Error) WithReason(format string, a ...interface{}) *Error {
+// WithReason creates a new golang error and adds it to ProxyError using the format string provided
+func (e *ProxyError) WithReason(format string, a ...interface{}) *ProxyError {
 
 	e.error = fmt.Errorf(format, a...)
 	return e
 }
 
-func (e *Error) WithError(err error) *Error {
+// WithError adds a golang error to ProxyError. This is used to nest errors, or chains of errors in the ProxyError type
+func (e *ProxyError) WithError(err error) *ProxyError {
 
 	if err != nil {
 		e.error = err
@@ -42,30 +54,34 @@ func (e *Error) WithError(err error) *Error {
 	return e
 }
 
-func (e *Error) GetError() error {
+// GetError returns the golang error value stored in ProxyError
+func (e *ProxyError) GetError() error {
 
 	return e.error
 }
 
-func (e *Error) IsProxyError(err error) bool {
+// IsProxyError determines if the supplied error is a ProxyError
+func (e *ProxyError) IsProxyError(err error) bool {
 
-	if _, ok := err.(*Error); ok {
+	if _, ok := err.(*ProxyError); ok {
 		return true
 	}
 
 	return false
 }
 
-func (e *Error) MustUnmarshalError(err error) {
+// MustUnmarshalError casts an error value to a ProxyError, or panics on failure
+func (e *ProxyError) MustUnmarshalError(err error) {
 
 	if castErr := e.UnmarshalError(err); castErr != nil {
-		panic("failed to cast error to proxy error")
+		panic(ERRCastErrorFailed.Err().WithError(castErr).Error())
 	}
 }
 
-func (e *Error) UnmarshalError(err error) error {
+// UnmarshalError casts an error value to a ProxyError
+func (e *ProxyError) UnmarshalError(err error) error {
 
-	if newError, ok := err.(*Error); ok {
+	if newError, ok := err.(*ProxyError); ok {
 		e.errType = newError.errType
 		e.error = newError.error
 		return nil
@@ -74,12 +90,14 @@ func (e *Error) UnmarshalError(err error) error {
 	return ERRCastErrorFailed.Err()
 }
 
-func (e *Error) Match(err *Error) bool {
+// Match determines if the ProxyError have the same error type
+func (e *ProxyError) Match(err *ProxyError) bool {
 
 	return e.errType == err.errType
 }
 
-func NewError(errType string) *Error {
+// NewError creates a ProxyError of the specified type
+func NewError(errType string) *ProxyError {
 
-	return &Error{errType: errType}
+	return &ProxyError{errType: errType}
 }

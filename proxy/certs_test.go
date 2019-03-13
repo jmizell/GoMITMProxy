@@ -228,8 +228,12 @@ func testingCAPair() (certFilename string, keyFilename string, err error) {
 	keyFilename = key.Name()
 
 	certs := &Certs{}
-	caKey, caCert, err := certs.GenerateCAPair()
-	err = WriteCA(certFilename, keyFilename, caCert, caKey)
+	_, _, err = certs.GenerateCAPair()
+	if err != nil {
+		return "", "", err
+	}
+
+	err = certs.WriteCA(certFilename, keyFilename)
 	if err != nil {
 		return "", "", err
 	}

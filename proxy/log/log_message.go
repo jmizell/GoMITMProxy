@@ -20,6 +20,7 @@ type MSG struct {
 	Message      string                 `json:"message"`
 	Fields       map[string]interface{} `json:"fields,omitempty"`
 	Request      *RequestRecord         `json:"request,omitempty"`
+	Response     *ResponseRecord        `json:"response,omitempty"`
 	ErrorMessage string                 `json:"error,omitempty"`
 	Level        Level                  `json:"level"`
 }
@@ -59,6 +60,17 @@ func (l *MSG) WithRequest(req *http.Request) *MSG {
 	err := l.Request.Load(req)
 	if err != nil {
 		l.logger.WithError(err).Error("failed to log request")
+	}
+
+	return l
+}
+
+func (l *MSG) WithResponse(res *http.Response) *MSG {
+
+	l.Response = &ResponseRecord{}
+	err := l.Response.Load(res)
+	if err != nil {
+		l.logger.WithError(err).Error("failed to log response")
 	}
 
 	return l

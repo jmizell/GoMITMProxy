@@ -19,23 +19,51 @@ import (
 	"github.com/jmizell/GoMITMProxy/proxy/log"
 )
 
+// Certificate Organization used when generating the certificate authority
 const CertOrg = "GoMITMProxy"
+
+// Key length for certificate authority, and host keys
 const KeyLength = 1024
+
+// Default max age a certificate authority will be valid for. Automatically generated host keys are set to expire
+// no later then the CA's max age.
 const DefaultKeyAge = time.Hour * 24
 
+// Error no certificate authority set in Certs
 const ERRCertNoCA = ErrorStr("no certificate authority set")
+
+// Error unable to read ca file
 const ERRCertCARead = ErrorStr("read ca file failed")
+
+// Error unable to parse ca
 const ERRCertCAParse = ErrorStr("parse ca failed")
+
+// Error certificate authority has expired
 const ERRCertCAExpired = ErrorStr("ca expired")
+
+// Error generating certificate authority
 const ERRCertGenCA = ErrorStr("generate ca failed")
+
+// Error failed to generate host key
 const ERRCertGenHostKey = ErrorStr("generate host key failed")
+
+// Error writing certificate authority files to disk
 const ERRCertWriteCA = ErrorStr("writing ca to disk failed")
+
+// Error generating key
 const ERRCertGenerateKey = ErrorStr("generate key failed")
+
+// Error creating x509 certificate
 const ERRCertx509Create = ErrorStr("create x509 cert failed")
+
+// Error parsing x509 certificate
 const ERRCertx509Parse = ErrorStr("parse x509 cert failed")
 
+// Exit code returned when an unrecoverable certificate error occurs
 const EXITCODECertFatal = 131
 
+// Certs generates and stores certificates for MITMProxy. Virtual host certificates are generated
+// on demand, and cached.
 type Certs struct {
 	certStore map[string]*tls.Certificate
 	caKey     *rsa.PrivateKey
@@ -44,6 +72,8 @@ type Certs struct {
 	lock      sync.Mutex
 }
 
+// Get attempts to retrieve a cert in the cache for the given virtual host, or generates
+// a new one if not present in the cache.
 func (c *Certs) Get(vhost string) (*tls.Certificate, error) {
 
 	if vhost == "" {
@@ -70,6 +100,7 @@ func (c *Certs) Get(vhost string) (*tls.Certificate, error) {
 	return key, nil
 }
 
+// LoadCAPair reads the certificate authority cert, and key from pem encoded files on disk.
 func (c *Certs) LoadCAPair(keyFile, certFile string) error {
 
 	keyBytes, err := ioutil.ReadFile(keyFile)
@@ -101,6 +132,8 @@ func (c *Certs) LoadCAPair(keyFile, certFile string) error {
 	return nil
 }
 
+// GenerateCAPair generates a certificate authority key and cert pair. It both stores,
+// and returns the generated pair.
 func (c *Certs) GenerateCAPair() (key *rsa.PrivateKey, cert *x509.Certificate, err error) {
 
 	if c.KeyAge == 0 {
@@ -125,9 +158,13 @@ func (c *Certs) GenerateCAPair() (key *rsa.PrivateKey, cert *x509.Certificate, e
 		return nil, nil, ERRCertGenCA.Err().WithError(err)
 	}
 
+	c.caCert = cert
+	c.caKey = key
+
 	return key, cert, nil
 }
 
+// GenerateHostKey returns a tls.Certificate for a given virtual host, signed by the CA.
 func (c *Certs) GenerateHostKey(vhost string) (*tls.Certificate, error) {
 
 	if c.caKey == nil || c.caCert == nil {
@@ -162,6 +199,32 @@ func (c *Certs) GenerateHostKey(vhost string) (*tls.Certificate, error) {
 	}
 
 	return &tlsCert, nil
+}
+
+// WriteCA writes the certificate authority key and cert as pem encoded files to disk.
+func (c *Certs) WriteCA(certFileName, keyFileName string) error {
+
+	if certFileName == "" || keyFileName == "" {
+		startTime := time.Now().Unix()
+		certFileName = fmt.Sprintf("gomitmproxy_ca_%d.crt", startTime)
+		keyFileName = fmt.Sprintf("gomitmproxy_ca_%d.key", startTime)
+	}
+
+	keyBytes := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(c.caKey)})
+	err := ioutil.WriteFile(keyFileName, keyBytes, 0600)
+	if err != nil {
+		return ERRCertWriteCA.Err().WithError(err)
+	}
+	log.WithField("key_file", keyFileName).Info("wrote certificate authority key")
+
+	certBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.caCert.Raw})
+	err = ioutil.WriteFile(certFileName, certBytes, 0600)
+	if err != nil {
+		return ERRCertWriteCA.Err().WithError(err)
+	}
+	log.WithField("cert_file", certFileName).Info("wrote certificate authority certificate")
+
+	return nil
 }
 
 func genCerts(certTemplate *x509.Certificate, signingCert *x509.Certificate, signingKey *rsa.PrivateKey, KeyAge time.Duration) (
@@ -202,29 +265,4 @@ func genSerial() *big.Int {
 	}
 
 	return serialNumber
-}
-
-func WriteCA(certFileName, keyFileName string, cert *x509.Certificate, key *rsa.PrivateKey) error {
-
-	if certFileName == "" || keyFileName == "" {
-		startTime := time.Now().Unix()
-		certFileName = fmt.Sprintf("gomitmproxy_ca_%d.crt", startTime)
-		keyFileName = fmt.Sprintf("gomitmproxy_ca_%d.key", startTime)
-	}
-
-	keyBytes := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	err := ioutil.WriteFile(keyFileName, keyBytes, 0600)
-	if err != nil {
-		return ERRCertWriteCA.Err().WithError(err)
-	}
-	log.WithField("key_file", keyFileName).Info("wrote certificate authority key")
-
-	certBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
-	err = ioutil.WriteFile(certFileName, certBytes, 0600)
-	if err != nil {
-		return ERRCertWriteCA.Err().WithError(err)
-	}
-	log.WithField("cert_file", certFileName).Info("wrote certificate authority certificate")
-
-	return nil
 }
