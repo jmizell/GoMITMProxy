@@ -2,8 +2,12 @@
 # GoMITMProxy
 [![Build Status](https://travis-ci.com/jmizell/GoMITMProxy.svg?branch=master)](https://travis-ci.com/jmizell/GoMITMProxy)
 ![GitHub](https://img.shields.io/github/license/jmizell/GoMITMProxy.svg?color=00ff00)
+[![GoDoc](https://godoc.org/github.com/jmizell/GoMITMProxy/proxy?status.svg)](https://godoc.org/github.com/jmizell/GoMITMProxy/proxy)
 
 Golang Man in the Middle Proxy
+
+## Docs
+https://godoc.org/github.com/jmizell/GoMITMProxy/proxy
 
 ## Build
 ```make build```
@@ -55,9 +59,9 @@ Usage: gomitmproxy [options]
   -generate_ca_only
     	generate a certificate authority, and exit
   -http_ports string
-    	ports to listen for http requests (default "0")
+    	ports to listen for http requests (default ",0")
   -https_ports string
-    	ports to listen for https requests (default "0")
+    	ports to listen for https requests (default ",0")
   -json
     	output json log format to standard out
   -key_age_hours int
@@ -65,7 +69,12 @@ Usage: gomitmproxy [options]
   -listen_addr string
     	network address bind to (default "127.0.0.1")
   -log_level string
-    	set logging to log level (default "info")
+    	set logging to log level (default "INFO")
+  -log_responses
+    	enable logging upstream server responses
   -request_log_file string
     	file to log http requests
+  -version
+    	output version
+
 ```
