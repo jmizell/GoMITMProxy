@@ -69,7 +69,7 @@ func ExampleMITMProxy() {
 	}
 }
 
-func ExampleProxyError() {
+func ExampleProxyError_castProxyError() {
 
 	// Create a proxy error constant. This is the immutable representation of our errors that
 	// we can later compare against to check error types.
@@ -98,7 +98,7 @@ func ExampleProxyError() {
 	fmt.Printf("receivingProxyError has error %s\n", receivingProxyError.GetError())
 }
 
-func ExampleProxyError_NestedProxyErrors() {
+func ExampleProxyError_nestedErrors() {
 
 	// Create a couple proxy error constants.
 	const customProxyErr1 = proxy.ErrorStr("custom error one")
