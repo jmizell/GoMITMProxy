@@ -97,6 +97,11 @@ func (l *DefaultHandler) WithRequest(req *http.Request) *MSG {
 	return l.NewMSG().WithRequest(req)
 }
 
+func (l *DefaultHandler) WithResponse(res *http.Response) *MSG {
+
+	return l.NewMSG().WithResponse(res)
+}
+
 func (l *DefaultHandler) Info(format string, a ...interface{}) {
 
 	l.NewMSG().Info(format, a...)

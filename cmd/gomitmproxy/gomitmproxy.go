@@ -38,6 +38,7 @@ func main() {
 	DNSRegex := flag.String("dns_regex", p.DNSRegex, "domains matching this regex pattern will return the proxy address")
 	config := flag.String("config", "", "proxy config file path")
 	requestLogFile := flag.String("request_log_file", "", "file to log http requests")
+	logResponses := flag.Bool("log_responses", p.LogResponses, "enable logging upstream server responses")
 	logJSON := flag.Bool("json", false, "output json log format to standard out")
 	logDebug := flag.Bool("debug", false, "enable debug logging")
 	logLevel := flag.String("log_level", log.DefaultLogger.Level.String(), "set logging to log level")
@@ -105,6 +106,8 @@ func main() {
 			p.DNSServer = *DNSServer
 		case "dns_regex":
 			p.DNSRegex = *DNSRegex
+		case "log_responses":
+			p.LogResponses = *logResponses
 		case "log_level":
 			logConfig.Level.Parse(*logLevel)
 		}
@@ -138,6 +141,7 @@ func main() {
 	log.WithField("dns_port", p.DNSPort).Debug("")
 	log.WithField("dns_server", p.DNSServer).Debug("")
 	log.WithField("dns_regex", p.DNSRegex).Debug("")
+	log.WithField("log_responses", p.LogResponses).Debug("")
 
 	// Start the proxy
 	if err = p.Run(); err != nil {
@@ -150,12 +154,12 @@ func GenerateCA(KeyAge int, CACertFile, CAKeyFile string) {
 	c := proxy.Certs{
 		KeyAge: time.Duration(KeyAge) * time.Hour,
 	}
-	key, cert, err := c.GenerateCAPair()
+	_, _, err := c.GenerateCAPair()
 	if err != nil {
 		log.Fatal(err.Error())
 	}
 
-	err = proxy.WriteCA(CACertFile, CAKeyFile, cert, key)
+	err = c.WriteCA(CACertFile, CAKeyFile)
 	if err != nil {
 		log.Fatal(err.Error())
 	}

@@ -27,6 +27,11 @@ func WithRequest(req *http.Request) *MSG {
 	return DefaultLogger.WithRequest(req)
 }
 
+func WithResponse(res *http.Response) *MSG {
+
+	return DefaultLogger.WithResponse(res)
+}
+
 func Info(format string, a ...interface{}) {
 
 	DefaultLogger.Info(format, a...)

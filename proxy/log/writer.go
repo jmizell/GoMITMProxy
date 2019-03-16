@@ -50,7 +50,7 @@ func (w *RequestWriter) Write(msg *MSG) error {
 			}
 		}
 
-		_, err := w.file.Write(msg.JSON())
+		_, err := w.file.Write(append(msg.JSON(), []byte("\n")...))
 		if err != nil {
 			return err
 		}

@@ -11,22 +11,22 @@ driver = webdriver.Remote(
 passing = False
 try:
     try:
-        os.remove("imageToSave.png")
+        os.remove("/tmp/selenium_screenshot.png")
     except Exception as e:
         print(e)
 
-    driver.get("https://www.reddit.com")
+    driver.get("https://www.github.com")
 
     screenshot = driver.get_screenshot_as_base64()
     with open("/tmp/selenium_screenshot.png", "wb") as fh:
         fh.write(base64.b64decode(screenshot))
 
     print(driver.title)
-    assert "the front page of the internet" in driver.title
+    assert "Github" in driver.title
 
     passing = True
 except Exception as e:
-    print(e.with_traceback())
+    print(e)
 
 driver.close()
 
