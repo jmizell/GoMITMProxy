@@ -37,7 +37,7 @@ func (p *HTTPServer) ListenAndServe(ready chan bool, handler http.Handler) error
 		for scanner.Scan() {
 			log.WithField("server", "http").
 				WithField("port", p.Port).
-				Error(scanner.Text())
+				Error("[SERVER] %s", scanner.Text())
 		}
 		if err := scanner.Err(); err != nil {
 			log.WithError(err).Error("exception reading from log writer")

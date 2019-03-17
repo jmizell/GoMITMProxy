@@ -3,7 +3,11 @@
 
 package log
 
-import "net/http"
+import (
+	"github.com/benburkert/dns"
+	"net/http"
+	"time"
+)
 
 var DefaultLogger, _ = NewDefaultConfig().GetLogger()
 
@@ -30,6 +34,21 @@ func WithRequest(req *http.Request) *MSG {
 func WithResponse(res *http.Response) *MSG {
 
 	return DefaultLogger.WithResponse(res)
+}
+
+func WithDNSQuestions(questions []dns.Question) *MSG {
+
+	return DefaultLogger.WithDNSQuestions(questions)
+}
+
+func WithDNSAnswer(name string, ttl time.Duration, record dns.Record) *MSG {
+
+	return DefaultLogger.WithDNSAnswer(name, ttl, record)
+}
+
+func WithDNSNXDomain() *MSG {
+
+	return DefaultLogger.WithDNSNXDomain()
 }
 
 func Info(format string, a ...interface{}) {

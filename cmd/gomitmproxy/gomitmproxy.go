@@ -18,27 +18,28 @@ import (
 	"github.com/jmizell/GoMITMProxy/proxy/log"
 )
 
-const Version = "0.0.2"
-
 func main() {
 
-	// Get a default proxy server
+	// Get a default proxy server, and log config
 	p := proxy.NewProxyWithDefaults()
+	logConfig := log.NewDefaultConfig()
 
 	// parse some flags
 	genCAOnly := flag.Bool("generate_ca_only", false, "generate a certificate authority, and exit")
 	KeyAge := flag.Int("key_age_hours", 0, "certificate authority expire time in hours, used only with generate_ca_only")
+	config := flag.String("config", "", "proxy config file path")
 	CAKeyFile := flag.String("ca_key_file", p.CAKeyFile, "path to certificate authority key file")
 	CACertFile := flag.String("ca_cert_file", p.CACertFile, "path to certificate authority cert file")
 	ListenAddr := flag.String("listen_addr", p.ListenAddr, "network address bind to")
 	HTTPSPorts := flag.String("https_ports", intsToString(p.HTTPSPorts), "ports to listen for https requests")
 	HTTPPorts := flag.String("http_ports", intsToString(p.HTTPPorts), "ports to listen for http requests")
 	DNSPort := flag.Int("dns_port", p.DNSPort, "port to listen for dns requests")
-	DNSServer := flag.String("dns_server", p.DNSServer, "use the supplied dns resolver, instead of system defaults")
+	DNSResolverOverride := flag.String("dns_resolver_override", p.DNSResolverOverride, "use the supplied dns resolver, instead of system defaults")
+	ForwardDNSServer := flag.String("forward_dns_server", p.ForwardDNSServer, "use the supplied dns resolver, instead of system defaults")
 	DNSRegex := flag.String("dns_regex", p.DNSRegex, "domains matching this regex pattern will return the proxy address")
-	config := flag.String("config", "", "proxy config file path")
-	requestLogFile := flag.String("request_log_file", "", "file to log http requests")
 	logResponses := flag.Bool("log_responses", p.LogResponses, "enable logging upstream server responses")
+	requestLogFile := flag.String("request_log_file", logConfig.RequestLogFile, "file to log dns, and http requests")
+	webHookURL := flag.String("webhook_url", logConfig.WebHookURL, "url to post request, and dns logs")
 	logJSON := flag.Bool("json", false, "output json log format to standard out")
 	logDebug := flag.Bool("debug", false, "enable debug logging")
 	logLevel := flag.String("log_level", log.DefaultLogger.Level.String(), "set logging to log level")
@@ -51,7 +52,7 @@ func main() {
 	flag.Parse()
 
 	if *version {
-		fmt.Println("Version ", Version)
+		fmt.Println("Version ", proxy.Version)
 		os.Exit(0)
 	}
 
@@ -61,7 +62,6 @@ func main() {
 	}
 
 	// Parse config file to values
-	logConfig := log.NewDefaultConfig()
 	if *config != "" {
 
 		data, err := ioutil.ReadFile(*config)
@@ -102,12 +102,16 @@ func main() {
 			}
 		case "dns_port":
 			p.DNSPort = *DNSPort
-		case "dns_server":
-			p.DNSServer = *DNSServer
+		case "forward_dns_server":
+			p.ForwardDNSServer = *ForwardDNSServer
+		case "dns_resolver_override":
+			p.DNSResolverOverride = *DNSResolverOverride
 		case "dns_regex":
 			p.DNSRegex = *DNSRegex
 		case "log_responses":
 			p.LogResponses = *logResponses
+		case "webhook_url":
+			logConfig.WebHookURL = *webHookURL
 		case "log_level":
 			logConfig.Level.Parse(*logLevel)
 		}
@@ -133,13 +137,15 @@ func main() {
 	log.WithField("log_level", logConfig.Level).Debug("")
 	log.WithField("log_format", logConfig.Format).Debug("")
 	log.WithField("request_log_file", logConfig.RequestLogFile).Debug("")
+	log.WithField("webhook_url", logConfig.WebHookURL).Debug("")
 	log.WithField("ca_key_file", p.CAKeyFile).Debug("")
 	log.WithField("ca_cert_file", p.CACertFile).Debug("")
 	log.WithField("listen_addr", p.ListenAddr).Debug("")
 	log.WithField("https_ports", p.HTTPSPorts).Debug("")
 	log.WithField("http_ports", p.HTTPPorts).Debug("")
 	log.WithField("dns_port", p.DNSPort).Debug("")
-	log.WithField("dns_server", p.DNSServer).Debug("")
+	log.WithField("forward_dns_server", p.ForwardDNSServer).Debug("")
+	log.WithField("dns_resolver_override", p.DNSResolverOverride).Debug("")
 	log.WithField("dns_regex", p.DNSRegex).Debug("")
 	log.WithField("log_responses", p.LogResponses).Debug("")
 
