@@ -10,6 +10,9 @@ import (
 	"github.com/jmizell/GoMITMProxy/proxy/log"
 )
 
+// GoMITMProxyHeader is the header key added to all requests, and server responses that are proxied.
+const GoMITMProxyHeader = "GoMITMProxy"
+
 // ReverseProxy is an http.Handler that that receives requests, performs the round trip,
 // and handles logging.
 type ReverseProxy struct {
@@ -28,6 +31,8 @@ func (p *ReverseProxy) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	if req.TLS != nil {
 		req.URL.Scheme = "https"
 	}
+
+	req.Header.Add(GoMITMProxyHeader, Version)
 
 	logMsg := log.WithRequest(req)
 
@@ -49,6 +54,9 @@ func (p *ReverseProxy) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		resp.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+
+	roundTripResponse.Header.Add(GoMITMProxyHeader, Version)
+
 	if p.LogResponses {
 		logMsg.WithResponse(roundTripResponse)
 	}
