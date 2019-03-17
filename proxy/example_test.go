@@ -12,12 +12,12 @@ import (
 func ExampleDNSServer() {
 
 	// DNS Server listening on TCP and UDP port 53, network address 127.0.0.1,
-	// forwarding requests to 1.1.1.1, except in the case of A record requests
+	// forwarding requests to 8.8.8.8, except in the case of A record requests
 	// for example.com, which are rewritten to point to 127.0.0.1.
 	dnsServer := &proxy.DNSServer{
 		ListenAddr:       "127.0.0.1",
 		Port:             53,
-		ForwardDNSServer: "1.1.1.1",
+		ForwardDNSServer: "8.8.8.8",
 		DNSRegex:         ".*example.com",
 	}
 
@@ -48,19 +48,20 @@ func ExampleCerts_GenerateCAPair() {
 func ExampleMITMProxy() {
 
 	// This creates a MITM proxy listening on TCP ports 80 and 443 network address
-	// 127.0.0.1, and a dns server on port 53 forwarding requests to 1.1.1.1,
+	// 127.0.0.1, and a dns server on port 53 forwarding requests to 8.8.8.8,
 	// redirecting requests for example.com to 127.0.0.1.
 	//
 	// When CAKeyFile and CACertFile are empty, and a proxy.Certs struct isn't
 	// supplied, the proxy will generate the keys, and write them to the current
 	// working directory
 	p := &proxy.MITMProxy{
-		ListenAddr: "127.0.0.1",
-		DNSServer:  "1.1.1.1",
-		DNSPort:    53,
-		DNSRegex:   ".*example.com",
-		HTTPSPorts: []int{443},
-		HTTPPorts:  []int{80},
+		ListenAddr:          "127.0.0.1",
+		ForwardDNSServer:    "8.8.8.8",
+		DNSResolverOverride: "8.8.8.8",
+		DNSPort:             53,
+		DNSRegex:            ".*example.com",
+		HTTPSPorts:          []int{443},
+		HTTPPorts:           []int{80},
 	}
 
 	// Run generates the CA, and starts listening for client connections

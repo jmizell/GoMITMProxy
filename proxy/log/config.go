@@ -7,11 +7,12 @@ type Config struct {
 	Level          Level  `json:"log_level"`
 	Format         Format `json:"log_format"`
 	RequestLogFile string `json:"request_log_file"`
+	WebHookURL     string `json:"webhook_url"`
 }
 
-func (c Config) GetLogger() (*DefaultHandler, *RequestWriter) {
+func (c Config) GetLogger() (handler *DefaultHandler, requestWriter *RequestWriter) {
 
-	handler := NewHandler(c.Level)
+	handler = NewHandler(c.Level)
 
 	if c.Format == JSON {
 		handler.SetWriter(&JSONWriter{})
@@ -20,12 +21,15 @@ func (c Config) GetLogger() (*DefaultHandler, *RequestWriter) {
 	}
 
 	if c.RequestLogFile != "" {
-		requestWriter := &RequestWriter{RequestLogFile: c.RequestLogFile}
+		requestWriter = &RequestWriter{RequestLogFile: c.RequestLogFile}
 		handler.AddWriter(requestWriter)
-		return handler, requestWriter
 	}
 
-	return handler, nil
+	if c.WebHookURL != "" {
+		handler.AddWriter(&WebHookWriter{WebHookURL: c.WebHookURL})
+	}
+
+	return handler, requestWriter
 }
 
 func NewDefaultConfig() *Config {
@@ -33,5 +37,6 @@ func NewDefaultConfig() *Config {
 		Level:          INFO,
 		Format:         TEXT,
 		RequestLogFile: "",
+		WebHookURL:     "",
 	}
 }

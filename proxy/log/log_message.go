@@ -6,6 +6,7 @@ package log
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/benburkert/dns"
 	"net/http"
 	"sort"
 	"strings"
@@ -21,6 +22,7 @@ type MSG struct {
 	Fields       map[string]interface{} `json:"fields,omitempty"`
 	Request      *RequestRecord         `json:"request,omitempty"`
 	Response     *ResponseRecord        `json:"response,omitempty"`
+	DNS          *DNSRecord             `json:"dns,omitempty"`
 	ErrorMessage string                 `json:"error,omitempty"`
 	Level        Level                  `json:"level"`
 }
@@ -76,6 +78,39 @@ func (l *MSG) WithResponse(res *http.Response) *MSG {
 	return l
 }
 
+func (l *MSG) WithDNSQuestions(questions []dns.Question) *MSG {
+
+	if l.DNS == nil {
+		l.DNS = &DNSRecord{}
+	}
+
+	l.DNS.AddQuestions(questions)
+
+	return l
+}
+
+func (l *MSG) WithDNSAnswer(name string, ttl time.Duration, record dns.Record) *MSG {
+
+	if l.DNS == nil {
+		l.DNS = &DNSRecord{}
+	}
+
+	l.DNS.AddAnswer(name, ttl, record)
+
+	return l
+}
+
+func (l *MSG) WithDNSNXDomain() *MSG {
+
+	if l.DNS == nil {
+		l.DNS = &DNSRecord{}
+	}
+
+	l.DNS.AddNXDomain()
+
+	return l
+}
+
 func (l *MSG) Info(format string, a ...interface{}) {
 
 	l.log(INFO, format, a...)
@@ -117,6 +152,8 @@ func (l *MSG) String() (msg string) {
 
 	if l.Request != nil {
 		msg = fmt.Sprintf("%s [%s] %s", msg, l.Request.Method, l.Request.URL.String())
+	} else if l.DNS != nil {
+		msg = fmt.Sprintf("%s [DNS]", msg)
 	}
 
 	if l.Message != "" {
@@ -138,6 +175,37 @@ func (l *MSG) String() (msg string) {
 			msg,
 			strings.Replace(key, " ", "_", -1),
 			strings.Replace(fmt.Sprintf("%v", l.Fields[key]), "\"", "\\\"", -1))
+	}
+
+	if l.DNS != nil && len(l.DNS.Questions) > 0 {
+
+		var qSlice []string
+		for _, q := range l.DNS.Questions {
+			questionStr := fmt.Sprintf("{Name:%s,Type:%s,Class:%v}", q.Name, q.Type, q.Class)
+			qSlice = append(qSlice, questionStr)
+		}
+
+		msg = fmt.Sprintf("%s questions=[%s]", msg, strings.Join(qSlice, ","))
+	}
+
+	if l.DNS != nil && len(l.DNS.Answers) > 0 {
+
+		var rSlice []string
+		for _, a := range l.DNS.Answers {
+			var answerStr string
+
+			if a.NXDomain == "" {
+				data, _ := json.Marshal(a.Record)
+				record := strings.Replace(string(data), `"`, "", -1)
+				answerStr = fmt.Sprintf("{Name:%s,TTL:%s,Record:%v}", a.Name, a.TTL, record)
+			} else {
+				answerStr = "{NXDomain}"
+			}
+
+			rSlice = append(rSlice, answerStr)
+		}
+
+		msg = fmt.Sprintf("%s answers=[%s]", msg, strings.Join(rSlice, ","))
 	}
 
 	return msg

@@ -25,6 +25,10 @@ test:
 	go test -cover -coverprofile=cover.out -v -timeout=15m ./... \
 	&& go tool cover -html=cover.out -o cover.html
 
+test_integration:
+	docker build --no-cache --force-rm -t jmizell/gomitmproxy:selenium_integration_test  -f selenium/DockerfileChrome . \
+	&& go test -v -timeout=15m -tags integration_test github.com/jmizell/GoMITMProxy/selenium
+
 clean:
 	rm -f *.crt *.key cover.out cover.html gomitmproxy
 

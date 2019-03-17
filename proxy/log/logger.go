@@ -5,8 +5,10 @@ package log
 
 import (
 	"fmt"
+	"github.com/benburkert/dns"
 	"net/http"
 	"os"
+	"time"
 )
 
 type Handler interface {
@@ -34,6 +36,8 @@ func NewHandler(level Level) *DefaultHandler {
 }
 
 func (l *DefaultHandler) SetWriter(w Writer) {
+
+	w.SetLevel(l.Level)
 	l.Writers = []Writer{w}
 }
 
@@ -43,6 +47,7 @@ func (l *DefaultHandler) AddWriter(w Writer) {
 		l.Writers = []Writer{}
 	}
 
+	w.SetLevel(l.Level)
 	l.Writers = append(l.Writers, w)
 }
 
@@ -52,13 +57,13 @@ func (l *DefaultHandler) Write(msg *MSG) {
 		l.Writers = []Writer{&TextWriter{}}
 	}
 
-	if msg.Level <= l.Level {
-		for _, w := range l.Writers {
-			err := w.Write(msg)
-			if err != nil {
-				fmt.Printf("error writing message to log writer, %s\n", err.Error())
-				os.Exit(1)
-			}
+	for _, w := range l.Writers {
+		err := w.Write(msg)
+		if err != nil {
+			m := WithError(err)
+			m.Level = FATAL
+			fmt.Println(m.String())
+			os.Exit(1)
 		}
 	}
 
@@ -100,6 +105,21 @@ func (l *DefaultHandler) WithRequest(req *http.Request) *MSG {
 func (l *DefaultHandler) WithResponse(res *http.Response) *MSG {
 
 	return l.NewMSG().WithResponse(res)
+}
+
+func (l *DefaultHandler) WithDNSQuestions(questions []dns.Question) *MSG {
+
+	return l.NewMSG().WithDNSQuestions(questions)
+}
+
+func (l *DefaultHandler) WithDNSAnswer(name string, ttl time.Duration, record dns.Record) *MSG {
+
+	return l.NewMSG().WithDNSAnswer(name, ttl, record)
+}
+
+func (l *DefaultHandler) WithDNSNXDomain() *MSG {
+
+	return l.NewMSG().WithDNSNXDomain()
 }
 
 func (l *DefaultHandler) Info(format string, a ...interface{}) {

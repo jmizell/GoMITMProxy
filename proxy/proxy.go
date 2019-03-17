@@ -56,12 +56,11 @@ type MITMProxy struct {
 	HTTPSPorts []int  `json:"https_ports"` // List of ports to start a tls server on
 	HTTPPorts  []int  `json:"http_ports"`  // List of ports to start http server on
 
-	DNSPort  int    `json:"dns_port"`  // Port to start listening for dns requests on, a zero value disables the server
-	DNSRegex string `json:"dns_regex"` // A regex pattern representing the vhosts to redirect to the proxy
+	ForwardDNSServer string `json:"forward_dns_server"` // Forward DNS server for the dns server to query
+	DNSPort          int    `json:"dns_port"`           // Port to start listening for dns requests on, a zero value disables the server
+	DNSRegex         string `json:"dns_regex"`          // A regex pattern representing the vhosts to redirect to the proxy
 
-	// ForwardDNSServer overrides net.DefaultResolver with this dns server address.
-	// If the proxy is also serving dns, this value will be used for forwarded dns requests.
-	DNSServer string `json:"dns_server"` // Override net.DefaultResolver with this dns server address
+	DNSResolverOverride string `json:"dns_resolver_override"` // DNSServer overrides net.DefaultResolver with this dns server address.
 
 	// ProxyTransport is the http.Handler that receives requests, and performs the round trip.
 	// If this value is nil, then ReverseProxy is used.
@@ -74,14 +73,15 @@ type MITMProxy struct {
 // NewProxyWithDefaults returns a proxy with the default values used in gomitmproxy
 func NewProxyWithDefaults() *MITMProxy {
 	return &MITMProxy{
-		CAKeyFile:  "",
-		CACertFile: "",
-		ListenAddr: "127.0.0.1",
-		DNSServer:  "",
-		DNSPort:    0,
-		DNSRegex:   "",
-		HTTPSPorts: []int{0},
-		HTTPPorts:  []int{0},
+		CAKeyFile:           "",
+		CACertFile:          "",
+		ListenAddr:          "127.0.0.1",
+		DNSResolverOverride: "",
+		ForwardDNSServer:    "",
+		DNSPort:             0,
+		DNSRegex:            "",
+		HTTPSPorts:          []int{0},
+		HTTPPorts:           []int{0},
 	}
 }
 
@@ -117,14 +117,14 @@ func (p *MITMProxy) Run() (err error) {
 		}
 	}
 
-	if p.DNSServer != "" {
+	if p.DNSResolverOverride != "" {
 		net.DefaultResolver = &net.Resolver{
 			PreferGo: true,
 
 			Dial: (&dns.Client{
 				Transport: &dns.Transport{
 					Proxy: dns.NameServers{
-						&net.UDPAddr{IP: net.ParseIP(p.DNSServer), Port: 53},
+						&net.UDPAddr{IP: net.ParseIP(p.DNSResolverOverride), Port: 53},
 					}.RoundRobin(),
 				},
 			}).Dial,
@@ -153,7 +153,7 @@ func (p *MITMProxy) runDNSServer() {
 	dnsServer := DNSServer{
 		ListenAddr:       p.ListenAddr,
 		Port:             p.DNSPort,
-		ForwardDNSServer: p.DNSServer,
+		ForwardDNSServer: p.ForwardDNSServer,
 		DNSRegex:         p.DNSRegex,
 	}
 

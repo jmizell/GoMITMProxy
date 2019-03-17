@@ -54,6 +54,10 @@ func (r *ResponseRecord) Load(res *http.Response) (err error) {
 
 func (r *ResponseRecord) ReadBody() error {
 
+	if r.bodyBuffer == nil {
+		return nil
+	}
+
 	bodyBytes, err := ioutil.ReadAll(r.bodyBuffer)
 	if err != nil {
 		return err

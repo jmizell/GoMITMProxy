@@ -5,11 +5,9 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/benburkert/dns"
@@ -18,35 +16,7 @@ import (
 )
 
 // DefaultDNSServer is the default forward dns server DNSServer will use if ForwardDNSServer is left unset
-const DefaultDNSServer = "1.1.1.1"
-
-var dnsTypes = map[dns.Type]string{
-	dns.TypeA:     "A",
-	dns.TypeNS:    "NS",
-	dns.TypeCNAME: "CNAME",
-	dns.TypeSOA:   "SOA",
-	dns.TypeWKS:   "WKS",
-	dns.TypePTR:   "PTR",
-	dns.TypeHINFO: "HINFO",
-	dns.TypeMINFO: "MINFO",
-	dns.TypeMX:    "MX",
-	dns.TypeTXT:   "TXT",
-	dns.TypeAAAA:  "AAAA",
-	dns.TypeSRV:   "SRV",
-	dns.TypeDNAME: "DNAME",
-	dns.TypeOPT:   "OPT",
-	dns.TypeAXFR:  "AXFR",
-	dns.TypeALL:   "ALL",
-	dns.TypeCAA:   "CAA",
-	dns.TypeANY:   "ANY",
-}
-
-var dnsClass = map[dns.Class]string{
-	dns.ClassIN:  "IN",
-	dns.ClassCH:  "CH",
-	dns.ClassHS:  "HS",
-	dns.ClassANY: "ANY",
-}
+const DefaultDNSServer = "8.8.8.8"
 
 // DNSServer is a forwarding dns server, that can redirect arbitrary A record requests back to the MITMProxy listening
 // address. DNSServer only returns requests for valid dns entries, any request that cannot be answered by the forward
@@ -99,9 +69,13 @@ func (d *DNSServer) ServeDNS(ctx context.Context, w dns.MessageWriter, r *dns.Qu
 
 	var found bool
 
+	logMsg := log.WithDNSQuestions(r.Questions)
+
 	res, err := d.dnsClient.Do(context.Background(), r)
 	if err != nil {
-		log.WithError(err).Error("dns client forwarding failed")
+		logMsg.WithDNSNXDomain().WithError(err).Error("dns client forwarding failed")
+		w.Status(dns.NXDomain)
+		return
 	}
 
 	for _, upstreamDNS := range res.Answers {
@@ -112,73 +86,22 @@ func (d *DNSServer) ServeDNS(ctx context.Context, w dns.MessageWriter, r *dns.Qu
 		}
 
 		if upstreamDNS.Record.Type() == dns.TypeA && matchRegex {
-			log.WithField("req_name", upstreamDNS.Name).
-				WithField("req_type", dnsTypeString(upstreamDNS.Type())).
-				WithField("answer_record", dnsRecordString(d.record)).
-				WithField("answer_ttl", time.Minute).
-				Info("[DNS]")
-
+			logMsg.WithDNSAnswer(upstreamDNS.Name, time.Minute, d.record)
 			w.Answer(upstreamDNS.Name, time.Minute, d.record)
 			found = true
 		} else if upstreamDNS.Record.Type() == dns.TypeAAAA && matchRegex {
-			log.WithField("req_name", upstreamDNS.Name).
-				WithField("req_type", dnsTypeString(upstreamDNS.Type())).
-				Info("[DNS] Ignoring IPV6 AAAA")
+			logMsg.WithField("ignored_aaaa", true)
 		} else {
-			log.WithField("req_name", upstreamDNS.Name).
-				WithField("req_type", dnsTypeString(upstreamDNS.Type())).
-				WithField("answer_record", dnsRecordString(upstreamDNS.Record)).
-				WithField("answer_ttl", upstreamDNS.TTL).
-				Info("[DNS]")
-
+			logMsg.WithDNSAnswer(upstreamDNS.Name, upstreamDNS.TTL, upstreamDNS.Record)
 			w.Answer(upstreamDNS.Name, upstreamDNS.TTL, upstreamDNS.Record)
 			found = true
 		}
 	}
 
 	if !found {
-		log.WithField("req_questions", dnsQuestionsString(r.Questions)).
-			Info("[DNS] NXDomain")
-
+		logMsg.WithDNSNXDomain()
 		w.Status(dns.NXDomain)
 	}
-}
 
-func dnsTypeString(t dns.Type) string {
-
-	if name, ok := dnsTypes[t]; ok {
-		return name
-	}
-
-	return "UNKNOWN"
-}
-
-func dnsClassString(c dns.Class) string {
-
-	if name, ok := dnsClass[c]; ok {
-		return name
-	}
-
-	return "UNKNOWN"
-}
-
-func dnsRecordString(r dns.Record) string {
-
-	data, _ := json.Marshal(r)
-	return strings.Replace(string(data), `"`, "", -1)
-}
-
-func dnsQuestionsString(questions []dns.Question) string {
-
-	var qSlice []string
-	for _, q := range questions {
-		questionStr := fmt.Sprintf(
-			"{Name:%s,Type:%s,Class:%v}",
-			q.Name,
-			dnsTypeString(q.Type),
-			dnsClassString(q.Class))
-		qSlice = append(qSlice, questionStr)
-	}
-
-	return fmt.Sprintf("[%s]", strings.Join(qSlice, ","))
+	logMsg.Info("")
 }

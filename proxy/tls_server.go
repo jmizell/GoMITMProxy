@@ -42,7 +42,7 @@ func (p *TLSServer) ListenAndServe(ready chan bool, handler http.Handler) error 
 		for scanner.Scan() {
 			log.WithField("server", "https").
 				WithField("port", p.Port).
-				Error(scanner.Text())
+				Error("[SERVER] %s", scanner.Text())
 		}
 		if err := scanner.Err(); err != nil {
 			log.WithError(err).Error("exception reading from log writer")
@@ -101,6 +101,6 @@ func (p *TLSServer) Shutdown() error {
 }
 
 func (p *TLSServer) sniLookup(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	log.WithField("server_name", clientHello.ServerName).Debug("sni lookup with client hello")
+	log.WithField("server_name", clientHello.ServerName).Debug("[SNI] lookup with client hello")
 	return p.Certs.Get(clientHello.ServerName)
 }

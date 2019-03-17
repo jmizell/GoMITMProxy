@@ -11,22 +11,39 @@ import (
 
 type Writer interface {
 	Write(*MSG) error
+	SetLevel(Level)
 }
 
-type JSONWriter struct{}
+type JSONWriter struct {
+	level Level
+}
 
 func (w *JSONWriter) Write(msg *MSG) error {
 
-	fmt.Println(string(msg.JSON()))
+	if msg.Level <= w.level {
+		fmt.Println(string(msg.JSON()))
+	}
 	return nil
 }
 
-type TextWriter struct{}
+func (w *JSONWriter) SetLevel(level Level) {
+	w.level = level
+}
+
+type TextWriter struct {
+	level Level
+}
 
 func (w *TextWriter) Write(msg *MSG) error {
 
-	fmt.Println(msg.String())
+	if msg.Level <= w.level {
+		fmt.Println(msg.String())
+	}
 	return nil
+}
+
+func (w *TextWriter) SetLevel(level Level) {
+	w.level = level
 }
 
 type RequestWriter struct {
@@ -36,28 +53,35 @@ type RequestWriter struct {
 	RequestLogFile string `json:"request_log_file"`
 }
 
-func (w *RequestWriter) Write(msg *MSG) error {
-	var err error
+func (w *RequestWriter) Write(msg *MSG) (err error) {
 
-	if msg.Request != nil && w.RequestLogFile != "" {
-		w.lock.Lock()
-		defer w.lock.Unlock()
+	if w.RequestLogFile == "" {
+		return nil
+	}
 
-		if w.file == nil {
-			w.file, err = os.OpenFile(w.RequestLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-			if err != nil {
-				return err
-			}
-		}
+	// Only log requests, responses, and dns
+	if msg.Request == nil && msg.Response == nil && msg.DNS == nil {
+		return nil
+	}
 
-		_, err := w.file.Write(append(msg.JSON(), []byte("\n")...))
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	if w.file == nil {
+		w.file, err = os.OpenFile(w.RequestLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 		if err != nil {
 			return err
 		}
 	}
 
+	_, err = w.file.Write(append(msg.JSON(), []byte("\n")...))
+	if err != nil {
+		return err
+	}
 	return nil
 }
+
+func (w *RequestWriter) SetLevel(level Level) {}
 
 func (w *RequestWriter) Close() error {
 
