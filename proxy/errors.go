@@ -27,7 +27,8 @@ type ProxyError struct {
 	error   error
 }
 
-// ProxyError fulfills the golang error type
+// ProxyError fulfills the golang error type. It returns the error type, and if present appends
+// the go error.
 func (e *ProxyError) Error() string {
 
 	if e.error == nil {

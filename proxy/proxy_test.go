@@ -33,14 +33,13 @@ func TestProxy_Run(t *testing.T) {
 	}()
 
 	proxyHandler := &testProxyHandler{response: []byte("okay")}
-	proxy := &MITMProxy{
-		CAKeyFile:      keyFilename,
-		CACertFile:     certFilename,
-		ProxyTransport: proxyHandler,
-		ListenAddr:     "localhost",
-		HTTPPorts:      []int{0, 0},
-		HTTPSPorts:     []int{0, 0},
-	}
+	proxy := NewProxyWithDefaults()
+	proxy.CAKeyFile = keyFilename
+	proxy.CACertFile = certFilename
+	proxy.ProxyTransport = proxyHandler
+	proxy.ListenAddr = "localhost"
+	proxy.HTTPPorts = []int{0, 0}
+	proxy.HTTPSPorts = []int{0, 0}
 
 	go func() {
 		if err := proxy.Run(); err != nil {

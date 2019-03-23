@@ -20,7 +20,7 @@ type ReverseProxy struct {
 	// LogResponses enabled logging the the response with the request.
 	LogResponses bool `json:"log_responses"`
 
-	// The transport used to perform proxy requests. If nil, http.DefaultTransport is used.
+	// Transport is the http transport used to perform proxy requests. If nil, http.DefaultTransport is used.
 	Transport http.RoundTripper `json:"-"`
 }
 
