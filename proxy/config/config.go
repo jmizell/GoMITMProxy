@@ -4,6 +4,9 @@
 package config
 
 import (
+	"encoding/json"
+	"os"
+
 	"github.com/jmizell/GoMITMProxy/proxy/log"
 )
 
@@ -26,4 +29,27 @@ type Config struct {
 	Format         log.Format `json:"log_format"`
 	RequestLogFile string     `json:"request_log_file"`
 	WebHookURL     string     `json:"webhook_url"`
+}
+
+func (c *Config) Write(filepath string) (err error) {
+
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	f, err := os.OpenFile(filepath, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = f.Close()
+	}()
+
+	_, err = f.Write(data)
+	if err != nil {
+		return err
+	}
+
+	return err
 }

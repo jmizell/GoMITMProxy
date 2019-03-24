@@ -157,6 +157,26 @@ func TestCerts_Get(t *testing.T) {
 			t.Fatalf("expected cert store to have 2 entries, found %d", len(certStore.certStore))
 		}
 	})
+
+	t.Run("no_vhost", func(subTest *testing.T) {
+
+		certStore, err := getTestCertStore()
+		if err != nil {
+			t.Fatalf("expected GenerateCAPair to not return an error, received %s", err.Error())
+		}
+
+		if certStore.certStore != nil {
+			t.Fatalf("expected cert store to have 0 entries")
+		}
+
+		hostKey, err := certStore.Get("")
+		if err != nil {
+			t.Fatalf("expected Certs.Get to not return an error, received %s", err.Error())
+		}
+		if hostKey != nil {
+			t.Fatalf("expected no host key to be returned, but received cert")
+		}
+	})
 }
 
 func TestCerts_LoadCAPair(t *testing.T) {
